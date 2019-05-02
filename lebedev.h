@@ -1,5 +1,5 @@
 #ifndef LEBEDEV_H
-#include "glovar.h"
+#include "angular.h"
 
 #define LEBEDEV_H
 
