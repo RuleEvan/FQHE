@@ -1,5 +1,5 @@
 #ifndef LEBEDEV_H
-#include "angular.h"
+#include "comb.h"
 
 #define LEBEDEV_H
 

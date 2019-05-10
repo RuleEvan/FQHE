@@ -3,6 +3,7 @@
 #include "stdlib.h"
 #include "stdint.h"
 #include "string.h"
+#include "time.h"
 #include <gsl/gsl_sf_gamma.h>
 #include <gsl/gsl_sf_expint.h>
 #include <gsl/gsl_sf_result.h>
@@ -19,6 +20,8 @@
 #define M_S 6 // Number of magnetic flux quanta
 #define N_PART 3 // Number of particles
 #define N_LANCZOS 20
+
+#define HASH_SIZE 1001467
 
 #define LEBEDEV_ORDER 5810
 #define LEB_FILE "lebedev_131.txt"

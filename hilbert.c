@@ -1,5 +1,542 @@
 #include "hilbert.h"
 
+unsigned int next_perm(unsigned int v) {
+
+  unsigned int t = v | (v - 1);
+  unsigned int w = (t + 1) | (((~t & -~t) - 1) >> (__builtin_ctz(v) + 1));
+
+  return w;
+}
+
+void hierarchy_mult(double l, double s, int n) {
+  clock_t start, end;
+  double cpu_time;
+  start = clock();
+  double b = n - 1 + l - s;
+  int bdim = 2*b + 1;
+  printf("Magnetic field b = %g\n", b);
+  int *k_array = (int*) malloc(sizeof(int)*n);
+  unsigned __int128 k_num_max = pow(n, n);
+  double *m_array = (double*) malloc(sizeof(double)*n);
+  double *q_array = (double*) malloc(sizeof(double)*n);
+  double *s_ar = (double*) calloc(n, sizeof(double));
+  double *r_ar = (double*) calloc(n, sizeof(double));
+  double *me_array = (double*) calloc(n, sizeof(double));
+  int *i_couple = (int*) calloc(n, sizeof(int));
+  int i_hold = 0;
+  double *m_vortex = (double*) malloc(sizeof(double)*n*(n-1));
+  unsigned __int128 mv_num_max = pow(2, n*(n-1));
+  double *coeff = (double*) calloc(pow(bdim, n), sizeof(double));
+  int* seen = (int*) calloc(n, sizeof(int));
+  int* bseen = (int*) calloc(bdim, sizeof(int));
+  printf("%u, %u\n", (int) k_num_max, (int) mv_num_max);
+  rs_list** rs_store = card_u_fqhe(n);
+  int r_dim = n;
+  int s_dim = n;
+  // Populate m and q arrays
+  for (int i = 0; i < (int) 2*l + 1; i++) {
+    double l_i = -l + i;
+    for (int j = 0; j < (int) 2*s + 1; j++) {
+      double s_j = -s + j;
+      m_array[i_hold] = l_i;
+      q_array[i_hold] = s_j;
+      i_hold++;
+    }
+  }
+  for (int i = 0; i < n; i++) {
+    k_array[i] = i;
+  }
+  double pre_fact = sqrt((2*s + 1)*(n - 2*s + 2* l)*(2*n + 2*l - 2*s - 1));
+  pre_fact *= gsl_sf_gamma(n - 2*s)*sqrt(gsl_sf_gamma(2*s + 1.0)*gsl_sf_gamma(2*l + 1.0)*gsl_sf_gamma(n + 2*l - 2*s));
+  pre_fact /= sqrt(gsl_sf_gamma(n + 1.0)*gsl_sf_gamma(n - 2*s + 2*l + 1)*gsl_sf_gamma(2*n + 2*l - 2*s)*gsl_sf_gamma(n)); 
+//  double pre_fact = 1.0;
+  // Loop over all vortex coupling values
+  for (int irs = 0; irs < HASH_SIZE; irs++) {
+   // if (imv % 10000 == 0) {printf("%u\n", (int) imv);}
+    rs_list* rs_node = rs_store[irs];
+    while (rs_node != NULL) {
+//  for (int r_tot = 0; r_tot <= pow(r_dim, n); r_tot++) {
+//    for (int s_tot = 0; s_tot <= pow(s_dim, n); s_tot++) {
+      unsigned int mult = rs_node->mult;
+      unsigned int r_tot = rs_node->r;
+      unsigned int s_tot = rs_node->s;
+    
+      unsigned __int128 index = 0;
+ /*     printf("\n");
+      for (int i = 0; i < n; i++) {
+        printf("%d %g %g\n", k_array[i], m_array[k_array[i]], q_array[k_array[i]]);
+      }*/
+      double cg_fact = pre_fact;
+      int bad_rep = 0;
+     // printf("%d, %d, %d\n", r_tot, s_tot, mult);
+      int r_store = r_tot;
+      int s_store = s_tot;
+      int r_sum = 0;
+      int s_sum = 0;
+   /*   for (int i = 0; i < n; i++) {
+        double ri = r_store % r_dim;
+        r_store -= ri;
+        r_store /= r_dim;
+        r_sum += ri;
+        double si = s_store % s_dim;
+        s_store -= si;
+        s_store /= s_dim;
+        s_sum += si;
+      }
+      if (r_sum != s_sum) {continue;}*/
+      s_store = s_tot;
+      r_store = r_tot;
+      for (int i = 0; i < n; i++) {
+        double ri = r_store % r_dim;
+        r_store -= ri;
+        r_store /= r_dim;
+        double rfact = ri;
+        ri = (2*ri + 1 - n)/2.0;
+        r_sum += ri;
+        double si = s_store % s_dim;
+        s_store -= si;
+        s_store /= s_dim;
+        si = (2*si + 1 - n)/2.0; 
+        double q = q_array[k_array[i]];
+        double me = q - ri;
+        double m = m_array[k_array[i]];
+        double m_final = m + me + si; 
+        if (fabs(q - ri) > (n - 1.0)/2.0 - s) {bad_rep = 1; break;}
+        index += m_final + b;
+        if (i != n - 1) {index *= bdim;}
+        cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*si);
+        cg_fact *= gsl_sf_gamma(n/2.0 + 0.5 - ri)*gsl_sf_gamma(n/2.0 + 0.5 + ri);
+        cg_fact *= sqrt(gsl_sf_gamma(b + m_final + 1.0)*gsl_sf_gamma(b - m_final + 1.0)); 
+        cg_fact *= 1.0/(gsl_sf_gamma(n/2.0 + 0.5 + q - ri - s)*gsl_sf_gamma(n/2.0 + 0.5 - q + ri - s));
+      //  cg_fact *= 1.0/sqrt(gsl_sf_gamma(s - q + 1)*gsl_sf_gamma(s + q + 1)*gsl_sf_gamma(l - m + 1)*gsl_sf_gamma(l + m + 1));
+        //if (cg_fact == 0.0) {break;}
+     /*
+      cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s, me, r_ar[i], q_array[k_array[i]]);
+      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - r_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + r_ar[i] + 1.0)/gsl_sf_gamma(n));
+      cg_fact *= clebsch_gordan(l, (n-1)/2.0 - s, l + (n-1)/2.0 - s, m_array[k_array[i]], me, m_array[k_array[i]] + me);
+      cg_fact *= clebsch_gordan(l + (n-1)/2.0 - s, (n-1)/2.0, l - s + n - 1, m_array[k_array[i]] + me, s_ar[i], m_final);
+      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - s_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + s_ar[i] + 1.0)/gsl_sf_gamma(n));
+*/
+      }
+      rs_node = rs_node->next;
+    //if (cg_fact == 0.0) {continue;}
+    //int phase = perm_sign(k_array, n);
+      if (bad_rep) {continue;}
+      coeff[index] += cg_fact*mult;//*phase;
+    }
+  }
+//  for (int i = 0; i < pow(bdim, n); i++) {
+//    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
+//  }
+  double norm = 0.0;
+  k_num_max = pow(bdim, n);
+  int* compress = (int*) malloc(sizeof(int)*n);
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int perm = 0;
+    int repeat = 0;
+    unsigned __int128 index = 0;
+    for (int i = 0; i < bdim; i++) {bseen[i] = 0;}
+
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (k_store % bdim);
+      if (bseen[k_array[i]]) {repeat = 1; break;}
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {perm = 1;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      bseen[k_array[i]] = 1;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    if (repeat) {continue;}
+    if (coeff[index] == 0.0) {continue;}
+    if (perm) {
+/*      printf("Before\n");
+      for (int h = 0; h < n; h++) {
+        printf("%d\n", k_array[h]);
+      }
+*/
+      perm_compress(k_array, &compress, n);
+      int phase = perm_sign(compress, n);
+      order_perm(&k_array, n);
+/*
+      printf("After phase = %d\n", phase);
+
+      for (int h = 0; h < n; h++) {
+        printf("%d\n", k_array[h]);
+      }
+*/
+      int indexp = 0;
+      for (int i = 0; i < n; i++) {
+        indexp += k_array[i];
+        if (i != n-1) {indexp *= bdim;}
+      }
+  //    printf("%d %d %g %g\n", (int) index, (int) indexp, coeff[index], coeff[indexp]);
+      coeff[indexp] += coeff[index]*phase;
+    }
+  }
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int skip = 0;
+    unsigned __int128 index = 0;
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (k_store % bdim);
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+   //   printf("index: %d\n", index);
+
+    if (fabs(coeff[index]) > pow(10, -10)) {norm += pow(coeff[index], 2);}
+  }
+  end = clock();
+  norm = sqrt(norm);
+  printf("Norm: %g\n", norm);
+  char indices[1000];
+  char form[100];
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int skip = 0;
+    unsigned __int128 index = 0;
+    strcpy(indices, "");
+    for (int i = 0; i < n; i++) {
+      strcpy(form, "");
+      k_array[i] = (k_store % bdim);
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      index += k_array[i];
+      sprintf(form, "%g ", k_array[i] - b);
+      strcat(indices, form);
+      if (i != n-1) {index *= bdim;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+   //   printf("index: %d\n", index);
+
+    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %d %g\n", indices, (int) index, coeff[index]/norm);}
+  }
+  printf("Time: %g\n", (double) (end - start)/CLOCKS_PER_SEC);
+  return;
+}
+ 
+
+void hierarchy(double l, double s, int n) {
+  clock_t start, end;
+  double cpu_time;
+  start = clock();
+  double b = n - 1 + l - s;
+  int bdim = 2*b + 1;
+  printf("Magnetic field b = %g\n", b);
+  int *k_array = (int*) malloc(sizeof(int)*n);
+  unsigned __int128 k_num_max = pow(n, n);
+  double *m_array = (double*) malloc(sizeof(double)*n);
+  double *q_array = (double*) malloc(sizeof(double)*n);
+  double *s_ar = (double*) calloc(n, sizeof(double));
+  double *r_ar = (double*) calloc(n, sizeof(double));
+  double *me_array = (double*) calloc(n, sizeof(double));
+  int *i_couple = (int*) calloc(n, sizeof(int));
+  int i_hold = 0;
+  double *m_vortex = (double*) malloc(sizeof(double)*n*(n-1));
+  unsigned __int128 mv_num_max = pow(2, n*(n-1));
+  double *coeff = (double*) calloc(pow(bdim, n), sizeof(double));
+  int* seen = (int*) calloc(n, sizeof(int));
+  int* bseen = (int*) calloc(bdim, sizeof(int));
+  printf("%u, %u\n", (int) k_num_max, (int) mv_num_max);
+  rs_list** rs_mult = card_u_fqhe(n);
+  // Populate m and q arrays
+  for (int i = 0; i < (int) 2*l + 1; i++) {
+    double l_i = -l + i;
+    for (int j = 0; j < (int) 2*s + 1; j++) {
+      double s_j = -s + j;
+      m_array[i_hold] = l_i;
+      q_array[i_hold] = s_j;
+      i_hold++;
+    }
+  }
+  for (int i = 0; i < n; i++) {
+    k_array[i] = i;
+  }
+  double pre_fact = sqrt((2*s + 1)*(n - 2*s + 2* l)*(2*n + 2*l - 2*s - 1));
+  pre_fact *= gsl_sf_gamma(n - 2*s)*sqrt(gsl_sf_gamma(2*s + 1.0)*gsl_sf_gamma(2*l + 1.0)*gsl_sf_gamma(n + 2*l - 2*s));
+  pre_fact /= sqrt(gsl_sf_gamma(n + 1.0)*gsl_sf_gamma(n - 2*s + 2*l + 1)*gsl_sf_gamma(2*n + 2*l - 2*s)*gsl_sf_gamma(n)); 
+//  double pre_fact = 1.0;
+  // Loop over all vortex coupling values
+  for (unsigned __int128 imv = 0; imv < mv_num_max; imv++) {
+   // if (imv % 10000 == 0) {printf("%u\n", (int) imv);}
+    unsigned __int128 m_store = imv;
+    int ivor = 0;
+    for (int i = 0; i < n; i++) {
+      r_ar[i] = 0;
+      s_ar[i] = 0;
+    }
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j < n - 1; j++) {
+        int mv = (m_store % 2);
+        m_store -= mv;
+        m_store /= 2;
+        r_ar[i] += (mv - 0.5);
+        if (j >= i) {
+          s_ar[j + 1] += (mv - 0.5);
+        } else {
+          s_ar[j] += (mv - 0.5);
+        }
+      }
+    }
+    int bad_rep = 0;
+    for (int i = 0; i < n; i++) {
+      if (fabs(q_array[k_array[i]] - r_ar[i]) > (n - 1.0)/2.0 - s) {bad_rep = 1; break;}
+    }
+          // Enforce anti-symmetry
+    if (bad_rep) {continue;}
+    unsigned __int128 index = 0;
+ /*     printf("\n");
+      for (int i = 0; i < n; i++) {
+        printf("%d %g %g\n", k_array[i], m_array[k_array[i]], q_array[k_array[i]]);
+      }*/
+    double cg_fact = pre_fact;
+    for (int i = 0; i < n; i++) {
+      double q = q_array[k_array[i]];
+      double me = q - r_ar[i];
+      double m = m_array[k_array[i]];
+      double m_final = m + me + s_ar[i]; 
+      index += m_final + b;
+      if (i != n - 1) {index *= bdim;}
+      cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 + q - r_ar[i] + +s + 2*s_ar[i]);
+      cg_fact *= gsl_sf_gamma(n/2.0 + 0.5 - r_ar[i])*gsl_sf_gamma(n/2.0 + 0.5 + r_ar[i]);
+      cg_fact *= sqrt(gsl_sf_gamma(b + m_final + 1.0)*gsl_sf_gamma(b - m_final + 1.0)); 
+      cg_fact *= 1.0/(gsl_sf_gamma(n/2.0 + 0.5 + q - r_ar[i] - s)*gsl_sf_gamma(n/2.0 + 0.5 - q + r_ar[i] - s));
+      cg_fact *= 1.0/sqrt(gsl_sf_gamma(s - q + 1)*gsl_sf_gamma(s + 1 + 1)*gsl_sf_gamma(l - m + 1)*gsl_sf_gamma(l + m + 1));
+      //if (cg_fact == 0.0) {break;}
+/*
+      cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s, me, r_ar[i], q_array[k_array[i]]);
+      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - r_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + r_ar[i] + 1.0)/gsl_sf_gamma(n));
+      cg_fact *= clebsch_gordan(l, (n-1)/2.0 - s, l + (n-1)/2.0 - s, m_array[k_array[i]], me, m_array[k_array[i]] + me);
+      cg_fact *= clebsch_gordan(l + (n-1)/2.0 - s, (n-1)/2.0, l - s + n - 1, m_array[k_array[i]] + me, s_ar[i], m_final);
+      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - s_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + s_ar[i] + 1.0)/gsl_sf_gamma(n));
+*/
+    }
+    //if (cg_fact == 0.0) {continue;}
+    //int phase = perm_sign(k_array, n);
+    coeff[index] += cg_fact;//*phase;
+  }
+//  for (int i = 0; i < pow(bdim, n); i++) {
+//    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
+//  }
+  double norm = 0.0;
+  k_num_max = pow(bdim, n);
+  int* compress = (int*) malloc(sizeof(int)*n);
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int perm = 0;
+    int repeat = 0;
+    unsigned __int128 index = 0;
+    for (int i = 0; i < bdim; i++) {bseen[i] = 0;}
+
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (k_store % bdim);
+      if (bseen[k_array[i]]) {repeat = 1; break;}
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {perm = 1;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      bseen[k_array[i]] = 1;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    if (repeat) {continue;}
+    if (coeff[index] == 0.0) {continue;}
+    if (perm) {
+/*      printf("Before\n");
+      for (int h = 0; h < n; h++) {
+        printf("%d\n", k_array[h]);
+      }
+*/
+      perm_compress(k_array, &compress, n);
+      int phase = perm_sign(compress, n);
+      order_perm(&k_array, n);
+/*
+      printf("After phase = %d\n", phase);
+
+      for (int h = 0; h < n; h++) {
+        printf("%d\n", k_array[h]);
+      }
+*/
+      int indexp = 0;
+      for (int i = 0; i < n; i++) {
+        indexp += k_array[i];
+        if (i != n-1) {indexp *= bdim;}
+      }
+  //    printf("%d %d %g %g\n", (int) index, (int) indexp, coeff[index], coeff[indexp]);
+      coeff[indexp] += coeff[index]*phase;
+    }
+  }
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int skip = 0;
+    unsigned __int128 index = 0;
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (k_store % bdim);
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+   //   printf("index: %d\n", index);
+
+    if (fabs(coeff[index]) > pow(10, -10)) {norm += pow(coeff[index], 2);}
+  }
+  end = clock();
+  norm = sqrt(norm);
+  printf("Norm: %g\n", norm);
+  char indices[1000];
+  char form[100];
+  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int skip = 0;
+    unsigned __int128 index = 0;
+    strcpy(indices, "");
+    for (int i = 0; i < n; i++) {
+      strcpy(form, "");
+      k_array[i] = (k_store % bdim);
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      index += k_array[i];
+      sprintf(form, "%g ", k_array[i] - b);
+      strcat(indices, form);
+      if (i != n-1) {index *= bdim;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+   //   printf("index: %d\n", index);
+
+    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %d %g\n", indices, (int) index, coeff[index]/norm);}
+  }
+  printf("Time: %g\n", (double) (end - start)/CLOCKS_PER_SEC);
+  return;
+}
+
+void generate_rs_matrix(double mtot1, double mtot2, double mtot3) {
+  int rs_index = 0;
+  for (int r1 = -1; r1 <= 1; r1++) {
+    for (int r2 = -1; r2 <= 1; r2++) {
+      for (int r3 = -1; r3 <= 1; r3++) {
+        for (int s1 = -1; s1 <= 1; s1++) {
+          for (int s2 = -1; s2 <= 1; s2++) {
+            for (int s3 = -1; s3 <= 1; s3++) {
+              if (r1 + r2 + r3 != s1 + s2 + s3) {continue;}
+              double mat = 0.0; 
+              //int rs_index = r1 + 1 + 3*(r2 + 1 + 3*(r3 + 1 + 3*(s1 + 1 + 3*(s2 + 1 + 3*(s3 + 1)))));
+              rs_index++;
+              for (int m1 = -1; m1 <= 1; m1++) {
+                if (mtot1 != m1 - r1 + s1) {continue;}
+                for (int m2 = -1; m2 <= 1; m2++) {
+                  if (m2 == m1) {continue;}
+                  if (mtot2 != m2 - r2 + s2) {continue;}
+                  for (int m3 = -1; m3 <= 1; m3++) {
+                    if ((m3 == m1) || (m3 == m2)) {continue;}
+                    if (mtot3 != m3 - r3 + s3) {continue;}
+                    double cg_fact = clebsch_gordan(1.0, 1.0, 0.0, -r1, r1, 0.0);
+                    cg_fact *= clebsch_gordan(1.0, 1.0, 0.0, -r2, r2, 0.0);
+                    cg_fact *= clebsch_gordan(1.0, 1.0, 0.0, -r3, r3, 0.0);
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - r1)*gsl_sf_gamma(2.0 + r1)/gsl_sf_gamma(3.0));
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - r2)*gsl_sf_gamma(2.0 + r2)/gsl_sf_gamma(3.0));
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - r3)*gsl_sf_gamma(2.0 + r3)/gsl_sf_gamma(3.0));
+                    cg_fact *= clebsch_gordan(1.0, 1.0, 2.0, m1, -r1, m1 - r1);
+                    cg_fact *= clebsch_gordan(1.0, 1.0, 2.0, m2, -r2, m2 - r2);
+                    cg_fact *= clebsch_gordan(1.0, 1.0, 2.0, m3, -r3, m3 - r3);
+                    cg_fact *= clebsch_gordan(2.0, 1.0, 3.0, m1 - r1, s1, mtot1);
+                    cg_fact *= clebsch_gordan(2.0, 1.0, 3.0, m2 - r2, s2, mtot2);
+                    cg_fact *= clebsch_gordan(2.0, 1.0, 3.0, m3 - r3, s3, mtot3);
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - s1)*gsl_sf_gamma(2.0 + s1)/gsl_sf_gamma(3.0));
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - s2)*gsl_sf_gamma(2.0 + s2)/gsl_sf_gamma(3.0));
+                    cg_fact *= sqrt(gsl_sf_gamma(2.0 - s3)*gsl_sf_gamma(2.0 + s3)/gsl_sf_gamma(3.0));
+                    if ((m1 == -1) && (m2 == 1) && (m3 == 0)) {cg_fact *= -1;}
+                    if ((m1 == 1) && (m2 == 0) && (m3 == -1)) {cg_fact *= -1;}
+                    if ((m1 == 0) && (m2 == -1) && (m3 == 1)) {cg_fact *= -1;}
+                    mat += cg_fact;
+                  } 
+                }
+              }
+              printf("%g, ", mat);
+            }
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+int perm_sign(int* perm, int n) {
+  int *seen = (int*) calloc(n, sizeof(int));
+  int sign = 1;
+
+  for (int k = 0; k < n; k++) {
+    if (!seen[k]) {
+      int next = k;
+      int l = 0;
+      while (!seen[next]) {
+        l++;
+        seen[next] = 1;
+        next = perm[next];
+      }
+      if (l % 2 == 0) {
+        sign *= -1;
+      }
+    }
+  }
+  return sign;
+}
+
+void order_perm(int** perm, int n) {
+
+  int* seen = (int*) calloc(n, sizeof(int));
+  int* ord = (int*) calloc(n, sizeof(int));
+
+  for (int i = 0; i < n; i++) {
+    int min = 1000;
+    int j_min;
+    for (int j = 0; j < n; j++) {
+      if (seen[j]) {continue;}
+      if ((*perm)[j] < min) {
+        min = (*perm)[j];
+        j_min = j;
+      }
+    }
+    ord[i] = (*perm)[j_min];
+    seen[j_min] = 1;
+  }
+  *perm = ord;
+  return;
+}
+
+void perm_compress(int* perm, int** result, int n) { 
+  int* seen = (int*) calloc(n, sizeof(int));
+
+  for (int i = 0; i < n; i++) {
+    int min = 1000;
+    int j_min;
+    for (int j = 0; j < n; j++) {
+      if (seen[j]) {continue;}
+      if (perm[j] < min) {
+        min = perm[j];
+        j_min = j;
+      }
+    }
+    (*result)[j_min] = i;
+    seen[j_min] = 1;
+  }
+
+  return;
+}
+ 
 void setup_hamiltonian(double* ham) {
   int n_states = 2*M_S + 1;
   int L_landau = M_S; 
@@ -349,151 +886,3 @@ void laughlin(int m, int n) {
   return;
 }
 
-void hierarchy(double l, double s, int n) {
-  double b = n - 1 + l - s;
-  int bdim = 2*b + 1;
-  printf("Magnetic field b = %g\n", b);
-  int *k_array = (int*) malloc(sizeof(int)*n);
-  unsigned int k_num_max = pow(n, n);
-  double *m_array = (double*) malloc(sizeof(double)*n);
-  double *q_array = (double*) malloc(sizeof(double)*n);
-  double *m_tot_array = (double*) calloc(n, sizeof(double));
-  double *me_array = (double*) calloc(n, sizeof(double));
-  int *i_couple = (int*) calloc(n, sizeof(int));
-  int i_hold = 0;
-  double *m_vortex = (double*) malloc(sizeof(double)*n*(n-1));
-  unsigned int mv_num_max = pow(2, n*(n-1));
-  double *coeff = (double*) calloc(pow(bdim, n), sizeof(double));
-  int* seen = (int*) calloc(n, sizeof(int));
-  for (int i = 0; i < (int) 2*l + 1; i++) {
-    double l_i = -l + i;
-    for (int j = 0; j < (int) 2*s + 1; j++) {
-      double s_j = -s + j;
-      m_array[i_hold] = l_i;
-      q_array[i_hold] = s_j;
-      i_hold++;
-    }
-  }
-  for (int ik = 0; ik < k_num_max; ik++) {
-    int k_store = ik;
-    int repeat = 0;
-    for (int i = 0; i < n; i++) {seen[i] = 0;}
-    printf("\n");
-    for (int i = 0; i < n; i++) {
-      k_array[i] = (k_store % n);
-      if (seen[k_array[i]]) {repeat = 1; break;}
-      seen[k_array[i]] = 1;
-      k_store -= k_array[i];
-      k_store /= n;
-    }
-    if (repeat) {continue;}
-    int phase = perm_sign(k_array, n);
-    for (int i = 0; i < n; i++) {
-  //    printf("%d %g %g\n", k_array[i], m_array[k_array[i]], q_array[k_array[i]]);
-    }
-    for (unsigned int imv = 0; imv < mv_num_max; imv++) {
-      unsigned int m_store = imv;
-      for (int i = 0; i < n*(n-1); i++) {
-        m_vortex[i] = (m_store % 2);
-        m_store -= m_vortex[i];
-        m_store /= 2;
-        m_vortex[i] -= 0.5;
-      }
-      double cg_fact = 1.0;
-      for (int i = 0; i < n; i++) {
-        i_couple[i] = 0;
-        m_tot_array[i] = 0.0;
-      }
-      int bad_rep = 0;
-      for (int i = 0; i < n; i++) {
-        double mv_tot = 0;
-        for (int j = 0; j < n - 1; j++) {
-          if (j > 0) {
-            cg_fact *= clebsch_gordan(j/2.0, 0.5, (j + 1)/2.0, mv_tot, m_vortex[j + i*(n - 1)], mv_tot + m_vortex[j + i*(n - 1)]); 
-          }
-          if (j >= i) {
-            double m_prev = m_tot_array[j + 1];
-            m_tot_array[j + 1] += m_vortex[j + i*(n - 1)];
-            if (i_couple[j + 1] != 0) {
-              cg_fact *= clebsch_gordan(i_couple[j + 1]/2.0, 0.5, (i_couple[j + 1] + 1)/2.0, m_prev, m_vortex[j + i*(n - 1)], m_tot_array[j + 1]);
-            }
-            i_couple[j + 1]++; 
-          } else {
-            double m_prev = m_tot_array[j];
-            m_tot_array[j] += m_vortex[j + i*(n-1)];
-            if (i_couple[j] != 0) {
-              cg_fact *= clebsch_gordan(i_couple[j]/2.0, 0.5, (i_couple[j] + 1)/2.0, m_prev, m_vortex[j + i*(n - 1)], m_tot_array[j]);
-            }
-            i_couple[j]++; 
-
-          }
-          mv_tot += m_vortex[j + i*(n - 1)];
-        }
-        me_array[i] = q_array[i] - mv_tot;
-        if (fabs(me_array[i]) > (n-1)/2.0 -s) {bad_rep = 1; break;}
-        cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s, me_array[i], mv_tot, q_array[i]);
-      }
-      if (bad_rep) {continue;}
-      int index = 0;
-      for (int i = 0; i < n; i++) {
-        double m_final = m_array[i] + me_array[i] + m_tot_array[i]; 
-        index += m_final + b;
-        if (i != n - 1) {index *= bdim;}
-        cg_fact *= clebsch_gordan(l, (n-1)/2.0 - s, l + (n-1)/2.0 - s, m_array[i], me_array[i], m_array[i] + me_array[i]);
-        cg_fact *= clebsch_gordan(l + (n-1)/2.0 - s, (n-1)/2.0, l - s + n - 1, m_array[i] + me_array[i], m_tot_array[i], m_array[i] + me_array[i] + m_tot_array[i]);
-        coeff[index] += cg_fact*phase;
-      }
-    }
-  }
-//  for (int i = 0; i < pow(bdim, n); i++) {
-//    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
-//  }
-  double norm = 0.0;
-  for (int im1 = 0; im1 < bdim; im1++) {
-    for (int im2 = 0; im2 <= im1; im2++) {
-      for (int im3 = 0; im3 <= im2; im3++) {
-        for (int im4 = 0; im4 <= im3; im4++) {
-          if (fabs(coeff[im1 + bdim*(im2 + bdim*(im3 + bdim*im4))]) > pow(10, -10)) {norm += pow(coeff[im1 + bdim*(im2 + bdim*(im3 + bdim*im4))], 2.0);}
-        }
-      }
-    }
-  }
-  norm = sqrt(norm);
-  printf("Norm: %g\n", norm);
-  for (int im1 = 0; im1 < bdim; im1++) {
-    double m1 = (im1 - b);
-    for (int im2 = 0; im2 <= im1; im2++) {
-      double m2 = (im2 - b);
-      for (int im3 = 0; im3 <= im2; im3++) {
-        double m3 = (im3 - b);
-        for (int im4 = 0; im4 <= im3; im4++) {
-          double m4 = (im4 - b);
-          if (fabs(coeff[im1 + bdim*(im2 + bdim*(im3 + bdim*im4))]) > pow(10, -10)) {printf("%g, %g, %g, %g, %g\n", m1, m2, m3, m4, coeff[im1 + bdim*(im2 + bdim*(im3 + bdim*im4))]);}
-        }
-      }
-    }
-  }
-
-  return;
-}
-
-int perm_sign(int* perm, int n) {
-  int *seen = (int*) calloc(n, sizeof(int));
-  int sign = 1;
-
-  for (int k = 0; k < n; k++) {
-    if (!seen[k]) {
-      int next = k;
-      int l = 0;
-      while (!seen[next]) {
-        l++;
-        seen[next] = 1;
-        next = perm[next];
-      }
-      if (l % 2 == 0) {
-        sign *= -1;
-      }
-    }
-  }
-  return sign;
-} 
