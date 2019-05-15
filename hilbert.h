@@ -32,5 +32,5 @@ void generate_rs_matrix(double mtot1, double mtot2, double mtot3);
 void order_perm(int** perm, int n);
 void perm_compress(int* perm, int** result, int n);
 unsigned int next_perm(unsigned int t);
-
+void increment(unsigned int** perm, unsigned int* perm_min, unsigned int* perm_max, double** s_ar, int n, int i, int* done);
 #endif

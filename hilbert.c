@@ -1,12 +1,5 @@
 #include "hilbert.h"
 
-unsigned int next_perm(unsigned int v) {
-
-  unsigned int t = v | (v - 1);
-  unsigned int w = (t + 1) | (((~t & -~t) - 1) >> (__builtin_ctz(v) + 1));
-
-  return w;
-}
 
 void hierarchy_mult(double l, double s, int n) {
   clock_t start, end;
@@ -16,24 +9,18 @@ void hierarchy_mult(double l, double s, int n) {
   int bdim = 2*b + 1;
   printf("Magnetic field b = %g\n", b);
   int *k_array = (int*) malloc(sizeof(int)*n);
-  unsigned __int128 k_num_max = pow(n, n);
   double *m_array = (double*) malloc(sizeof(double)*n);
   double *q_array = (double*) malloc(sizeof(double)*n);
-  double *s_ar = (double*) calloc(n, sizeof(double));
-  double *r_ar = (double*) calloc(n, sizeof(double));
+  double *m_final = (double*) calloc(n, sizeof(double));
   double *me_array = (double*) calloc(n, sizeof(double));
-  int *i_couple = (int*) calloc(n, sizeof(int));
-  int i_hold = 0;
-  double *m_vortex = (double*) malloc(sizeof(double)*n*(n-1));
-  unsigned __int128 mv_num_max = pow(2, n*(n-1));
   double *coeff = (double*) calloc(pow(bdim, n), sizeof(double));
-  int* seen = (int*) calloc(n, sizeof(int));
-  int* bseen = (int*) calloc(bdim, sizeof(int));
-  printf("%u, %u\n", (int) k_num_max, (int) mv_num_max);
-  rs_list** rs_store = card_u_fqhe(n);
-  int r_dim = n;
-  int s_dim = n;
+  unsigned int* perm_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
+  unsigned int* perm_min_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
+  unsigned int* perm_max_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
   // Populate m and q arrays
+  int i_hold = 0;
+  int* bseen = (int*) calloc(bdim, sizeof(int));
+  // Setup m and q values
   for (int i = 0; i < (int) 2*l + 1; i++) {
     double l_i = -l + i;
     for (int j = 0; j < (int) 2*s + 1; j++) {
@@ -43,93 +30,107 @@ void hierarchy_mult(double l, double s, int n) {
       i_hold++;
     }
   }
+  // Choose one permutation of m and q values
   for (int i = 0; i < n; i++) {
     k_array[i] = i;
   }
+  // Don't really need this prefactor because we normalize anyway
   double pre_fact = sqrt((2*s + 1)*(n - 2*s + 2* l)*(2*n + 2*l - 2*s - 1));
   pre_fact *= gsl_sf_gamma(n - 2*s)*sqrt(gsl_sf_gamma(2*s + 1.0)*gsl_sf_gamma(2*l + 1.0)*gsl_sf_gamma(n + 2*l - 2*s));
   pre_fact /= sqrt(gsl_sf_gamma(n + 1.0)*gsl_sf_gamma(n - 2*s + 2*l + 1)*gsl_sf_gamma(2*n + 2*l - 2*s)*gsl_sf_gamma(n)); 
 //  double pre_fact = 1.0;
   // Loop over all vortex coupling values
-  for (int irs = 0; irs < HASH_SIZE; irs++) {
-   // if (imv % 10000 == 0) {printf("%u\n", (int) imv);}
-    rs_list* rs_node = rs_store[irs];
-    while (rs_node != NULL) {
-//  for (int r_tot = 0; r_tot <= pow(r_dim, n); r_tot++) {
-//    for (int s_tot = 0; s_tot <= pow(s_dim, n); s_tot++) {
-      unsigned int mult = rs_node->mult;
-      unsigned int r_tot = rs_node->r;
-      unsigned int s_tot = rs_node->s;
-    
-      unsigned __int128 index = 0;
- /*     printf("\n");
-      for (int i = 0; i < n; i++) {
-        printf("%d %g %g\n", k_array[i], m_array[k_array[i]], q_array[k_array[i]]);
-      }*/
-      double cg_fact = pre_fact;
-      int bad_rep = 0;
-     // printf("%d, %d, %d\n", r_tot, s_tot, mult);
-      int r_store = r_tot;
-      int s_store = s_tot;
-      int r_sum = 0;
-      int s_sum = 0;
-   /*   for (int i = 0; i < n; i++) {
-        double ri = r_store % r_dim;
-        r_store -= ri;
-        r_store /= r_dim;
-        r_sum += ri;
-        double si = s_store % s_dim;
-        s_store -= si;
-        s_store /= s_dim;
-        s_sum += si;
+
+  int me_dim = n - 2*s;
+  unsigned int ime_max = pow(me_dim, n);
+
+  printf("IME MAX: %u\n", ime_max);
+  // ime is an integer that encodes the m_e(i) values for all i,
+  // m_e(i) is the magnetic quantum number of the electron spinor [u_i]^{(N-1)/2 - s}
+  for (unsigned int ime = 0; ime < ime_max; ime++) {
+    if (ime % 10000 == 0) {printf("%g %\n", 100.0*((double) ime)/((double) ime_max));}
+    unsigned int ime_store = ime;
+    // Some realizations of m_e(i) are not physical, bad_rep keeps track of this
+    int bad_rep = 0;
+    // Loop over each electron
+    double me_tot = 0.0;
+    for (int i = 0; i < n; i++) {
+      // Set the value of m_e(i) by modding ime by the appropriate factor
+      me_array[i] = ime_store % me_dim;
+      ime_store -= me_array[i];
+      ime_store /= me_dim;
+      // Translate between number of spin-up electrons and physical m_e values
+      me_array[i] -= ((n - 1)/2.0 - s);
+      // r_up gives the number of spin-up electrons in the vortex spinor of particle i
+      int r_up = q_array[k_array[i]] - me_array[i] + (n-1)/2.0;
+      if (r_up < 0) {bad_rep = 1; break;}
+      perm_min_array[i] = pow(2, r_up) - 1;
+      perm_array[i] = perm_min_array[i];
+      perm_max_array[i] = pow(2, n - 1) - pow(2, n - 1 - r_up);
+      m_final[i] = m_array[k_array[i]] + me_array[i] -(n-1)/2.0;
+      me_tot += me_array[i];
+    }
+    if (bad_rep) {continue;}
+    int phase = pow(-1.0, 1.5*n - 3.0*pow(n, 2)/2.0 + 3.0*me_tot + n*s);
+    for (int i = 0; i < n; i++) {
+      int mv = perm_array[i];
+      for (int j = 0; j < n - 1; j++) {
+        if (mv % 2) {
+          if (j >= i) {
+            m_final[j + 1]++;
+          } else {
+            m_final[j]++;
+          }
+  
+        }
+        mv -= (mv % 2);
+        mv /= 2;
       }
-      if (r_sum != s_sum) {continue;}*/
-      s_store = s_tot;
-      r_store = r_tot;
+    }
+
+    int done = 0;
+    while (!done) {
+      unsigned int index = 0;
+      double cg_fact = phase;
+      int anti_sym = 1;
+      for (int i = 0; i < bdim; i++) {bseen[i] = 0;};
       for (int i = 0; i < n; i++) {
-        double ri = r_store % r_dim;
-        r_store -= ri;
-        r_store /= r_dim;
-        double rfact = ri;
-        ri = (2*ri + 1 - n)/2.0;
-        r_sum += ri;
-        double si = s_store % s_dim;
-        s_store -= si;
-        s_store /= s_dim;
-        si = (2*si + 1 - n)/2.0; 
+        double m_f = m_final[i];
+        int imf = m_f + b;
+        if (bseen[imf]) {anti_sym = 0; break;}  
+        bseen[imf] = 1;
+      }
+      if (!anti_sym) {
+      //  printf("Not anti-sym\n");
+        increment(&perm_array, perm_min_array, perm_max_array, &m_final, n, 0, &done);
+        continue;
+      }
+      for (int i = 0; i < n; i++) {
         double q = q_array[k_array[i]];
-        double me = q - ri;
+        double me = me_array[i];
+        double ri = q - me;
         double m = m_array[k_array[i]];
-        double m_final = m + me + si; 
-        if (fabs(q - ri) > (n - 1.0)/2.0 - s) {bad_rep = 1; break;}
-        index += m_final + b;
-        if (i != n - 1) {index *= bdim;}
-        cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*si);
-        cg_fact *= gsl_sf_gamma(n/2.0 + 0.5 - ri)*gsl_sf_gamma(n/2.0 + 0.5 + ri);
-        cg_fact *= sqrt(gsl_sf_gamma(b + m_final + 1.0)*gsl_sf_gamma(b - m_final + 1.0)); 
-        cg_fact *= 1.0/(gsl_sf_gamma(n/2.0 + 0.5 + q - ri - s)*gsl_sf_gamma(n/2.0 + 0.5 - q + ri - s));
+        double m_f = m_final[i];
+    //    printf("q: %g m: %g ri: %g si: %g me: %g m_final: %g\n", q, m, ri, si, me, m_final);
+        index += m_f + b;
+        index *= bdim;
+     //   cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*(m + me -m_f));
+        cg_fact *= gsl_sf_fact(n/2.0 - 0.5 - ri)*gsl_sf_fact(n/2.0 - 0.5 + ri);
+        cg_fact *= sqrt(gsl_sf_fact(b + m_f)*gsl_sf_fact(b - m_f)); 
+        cg_fact *= 1.0/(gsl_sf_fact(n/2.0 - 0.5 + q - ri - s)*gsl_sf_fact(n/2.0 - 0.5 - q + ri - s));
       //  cg_fact *= 1.0/sqrt(gsl_sf_gamma(s - q + 1)*gsl_sf_gamma(s + q + 1)*gsl_sf_gamma(l - m + 1)*gsl_sf_gamma(l + m + 1));
-        //if (cg_fact == 0.0) {break;}
-     /*
-      cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s, me, r_ar[i], q_array[k_array[i]]);
-      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - r_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + r_ar[i] + 1.0)/gsl_sf_gamma(n));
-      cg_fact *= clebsch_gordan(l, (n-1)/2.0 - s, l + (n-1)/2.0 - s, m_array[k_array[i]], me, m_array[k_array[i]] + me);
-      cg_fact *= clebsch_gordan(l + (n-1)/2.0 - s, (n-1)/2.0, l - s + n - 1, m_array[k_array[i]] + me, s_ar[i], m_final);
-      cg_fact *= sqrt(gsl_sf_gamma((n-1)/2.0 - s_ar[i] + 1.0)*gsl_sf_gamma((n-1)/2.0 + s_ar[i] + 1.0)/gsl_sf_gamma(n));
-*/
       }
-      rs_node = rs_node->next;
-    //if (cg_fact == 0.0) {continue;}
-    //int phase = perm_sign(k_array, n);
-      if (bad_rep) {continue;}
-      coeff[index] += cg_fact*mult;//*phase;
+      index /= bdim;
+     // if (done) {exit(0);}
+      increment(&perm_array, perm_min_array, perm_max_array, &m_final, n, 0, &done);
+      coeff[index] += cg_fact;
     }
   }
 //  for (int i = 0; i < pow(bdim, n); i++) {
 //    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
 //  }
   double norm = 0.0;
-  k_num_max = pow(bdim, n);
+  unsigned int k_num_max = pow(bdim, n);
   int* compress = (int*) malloc(sizeof(int)*n);
   for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
     unsigned __int128 k_store = ik;
@@ -224,6 +225,75 @@ void hierarchy_mult(double l, double s, int n) {
   return;
 }
  
+unsigned int next_perm(unsigned int v) {
+  if (v == 0) {return 0;}
+  unsigned int t = v | (v - 1);
+  unsigned int w = (t + 1) | (((~t & -~t) - 1) >> (__builtin_ctz(v) + 1));
+//  printf("Next %d %d\n", (int) v, (int) w);
+  return w;
+}
+
+void increment(unsigned int **perm, unsigned int *perm_min, unsigned int *perm_max, double** m_final, int n, int i, int* done) {
+  if ((*perm)[i] == perm_max[i]) {
+    int pi = (*perm)[i];
+    int pf = perm_min[i];
+    (*perm)[i] = pf;
+    if (i < n - 1) {
+      for (int j = 0; j < n - 1; j++) {
+        if (pi % 2) {
+          if (j >= i) {
+            (*m_final)[j + 1]--;
+          } else {
+            (*m_final)[j]--;
+          }
+        }
+        if (pf % 2) {
+          if (j >= i) {
+            (*m_final)[j + 1]++;
+          } else {
+            (*m_final)[j]++;
+          }
+        }
+        pi -= (pi % 2);
+        pi /= 2;
+        pf -= (pf % 2);
+        pf /= 2;
+      } 
+
+      increment(perm, perm_min, perm_max, m_final, n, i + 1, done);
+    } else {
+      *done = 1;
+      return;
+    }
+  } else {
+    int pi = (*perm)[i];
+    int pf = next_perm(pi);
+    (*perm)[i] = pf;
+    for (int j = 0; j < n - 1; j++) {
+      if (pi % 2) {
+        if (j >= i) {
+          (*m_final)[j + 1]--;
+        } else {
+          (*m_final)[j]--;
+        }
+      }
+      if (pf % 2) {
+        if (j >= i) {
+          (*m_final)[j + 1]++;
+        } else {
+          (*m_final)[j]++;
+        }
+      }
+      pi -= (pi % 2);
+      pi /= 2;
+      pf -= (pf % 2);
+      pf /= 2;
+    } 
+  }
+  //exit(0);
+  return;
+}
+
 
 void hierarchy(double l, double s, int n) {
   clock_t start, end;
