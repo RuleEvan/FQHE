@@ -8,5 +8,7 @@ void compute_1body_energy(int np, double m, double e_shift);
 double xme(int m1, int m1p, int m2, int m2p);
 void laughlin(int m, int n);
 void hierarchy(double l, double s, int n);
-void shift_op(wfnData* wd, double m);
+wfnData* shift_op(wfnData* wd, double m);
+void normalize_wfn(wfnData* wd);
+void print_wfn(wfnData* wd);
 #endif

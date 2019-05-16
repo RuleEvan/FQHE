@@ -1,6 +1,6 @@
 #include "hilbert.h"
 
-void shift_op(wfnData* wd, double m) {
+wfnData* shift_op(wfnData* wd, double m) {
   // Acts the shift operator on the given FQHE wfn
   // The standard shift operator raises the magnetic field by one unit b -> b + 1/2
   clock_t start, end;
@@ -8,7 +8,6 @@ void shift_op(wfnData* wd, double m) {
   start = clock();
   int n = wd->n_spin_up;
   int r_up = m + n/2.0;
-  printf("%d\n", r_up);
   unsigned int perm_min = pow(2, r_up) - 1;
   unsigned int perm_max = pow(2, n) - pow(2, n - r_up);
   // B field is raised by one unit
@@ -16,13 +15,13 @@ void shift_op(wfnData* wd, double m) {
   double b_final = wd->b_mag + 0.5;
   int b_dim_f = (int) (2*b_final + 1);
   double* coeff = (double*) calloc(pow(b_dim_f, n), sizeof(double));
-  printf("Num states: %d\n", wd->n_states);
   for (unsigned int perm = perm_min; perm <= perm_max;) {
     for (int i_state = 0; i_state < wd->n_states; i_state++) {
       unsigned int index = 0;
       unsigned int p_store = perm;
       int bad_rep = 0;
       double cg_fact = 1.0;
+      if (wd->bc[i_state] == 0.0) {continue;}
       for (int i_part = 0; i_part < n; i_part++) {
         double m1 = (p_store % 2) - 0.5;
         double m2 = wd->basis[i_state]->m_val[i_part];
@@ -40,90 +39,119 @@ void shift_op(wfnData* wd, double m) {
     perm = next_perm(perm);
   }
   double norm = 0.0;
-  unsigned int k_num_max = pow(b_dim_f, n);
-  int* compress = (int*) malloc(sizeof(int)*n);
-   int* bseen = (int*) calloc(b_dim_f, sizeof(int));
- int *k_array = (int*) malloc(sizeof(int)*n);
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
-    unsigned __int128 k_store = ik;
-    int perm = 0;
+  unsigned int m_num_max = pow(b_dim_f, n);
+  int* compress = (int*) calloc(n, sizeof(int));
+  int* bseen = (int*) calloc(b_dim_f, sizeof(int));
+  int *m_array = (int*) malloc(sizeof(int)*n);
+  wfnData* wd_f = malloc(sizeof(*wd_f)); 
+  wd_f->b_mag = b_final;
+  wd_f->n_spin_up = n;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
+    int i_perm = 0;
     int repeat = 0;
-    unsigned __int128 index = 0;
+    unsigned int index = 0;
     for (int i = 0; i < b_dim_f; i++) {bseen[i] = 0;}
-
     for (int i = 0; i < n; i++) {
-      k_array[i] = (k_store % b_dim_f);
-      if (bseen[k_array[i]]) {repeat = 1; break;}
-      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {perm = 1;}}
-      k_store -= k_array[i];
-      k_store /= b_dim_f;
-      bseen[k_array[i]] = 1;
-      index += k_array[i];
+      m_array[i] = (m_store % b_dim_f);
+      if (bseen[m_array[i]]) {repeat = 1; break;}
+      if (i > 0) {if (m_array[i] <= m_array[i - 1]) {i_perm = 1;}}
+      m_store -= m_array[i];
+      m_store /= b_dim_f;
+      bseen[m_array[i]] = 1;
+      index += m_array[i];
       if (i != n-1) {index *= b_dim_f;}
     }
     if (repeat) {continue;}
     if (coeff[index] == 0.0) {continue;}
-    if (perm) {
-      perm_compress(k_array, &compress, n);
+    if (i_perm) {
+      perm_compress(m_array, &compress, n);
       int phase = perm_sign(compress, n);
-      order_perm(&k_array, n);
+      order_perm(&m_array, n);
       int indexp = 0;
       for (int i = 0; i < n; i++) {
-        indexp += k_array[i];
+        indexp += m_array[i];
         if (i != n-1) {indexp *= b_dim_f;}
       }
       coeff[indexp] += coeff[index]*phase;
     }
   }
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
-    unsigned __int128 k_store = ik;
+  wd_f->n_states = 0;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
     int skip = 0;
-    unsigned __int128 index = 0;
+    unsigned int index = 0;
     for (int i = 0; i < n; i++) {
-      k_array[i] = (k_store % b_dim_f);
-      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
-      k_store -= k_array[i];
-      k_store /= b_dim_f;
-      index += k_array[i];
+      m_array[i] = (m_store % b_dim_f);
+      if (i > 0) {if (m_array[i] <= m_array[i - 1]) {skip = 1;}}
+      m_store -= m_array[i];
+      m_store /= b_dim_f;
+      bseen[m_array[i]] = 1;
+      index += m_array[i];
+      if (i != n-1) {index *= b_dim_f;}
+    }
+    if (skip) {continue;}
+    if (fabs(coeff[index]) > pow(10, -8)) {(wd_f->n_states)++;}
+  }
+
+  wd_f->basis = (slater_det**) calloc(wd_f->n_states, sizeof(slater_det*));
+  wd_f->bc = (float*) calloc(wd_f->n_states, sizeof(float));
+  unsigned int i_state = 0;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
+    int skip = 0;
+    unsigned int index = 0;
+    for (int i = 0; i < n; i++) {
+      m_array[i] = (m_store % b_dim_f);
+      if (i > 0) {if (m_array[i] <= m_array[i - 1]) {skip = 1; break;}}
+      m_store -= m_array[i];
+      m_store /= b_dim_f;
+      index += m_array[i];
       if (i != n-1) {index *= b_dim_f;}
     }
     // Enforce anti-symmetry
     if (skip) {continue;}
-   //   printf("index: %d\n", index);
-
-    if (fabs(coeff[index]) > pow(10, -10)) {norm += pow(coeff[index], 2);}
+    if (fabs(coeff[index]) < pow(10, -8)) {continue;}
+    wd_f->basis[i_state] = malloc(sizeof(slater_det*));
+    wd_f->basis[i_state]->m_val = malloc(sizeof(float)*n);
+    for (int i = 0; i < n; i++) {
+      wd_f->basis[i_state]->m_val[i] = m_array[i] - wd_f->b_mag;
+    }
+    wd_f->bc[i_state] = coeff[index];
+    i_state++;
   }
-  end = clock();
+  return wd_f;
+}      
+
+void normalize_wfn(wfnData* wd) {
+  double norm = 0.0;
+  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
+    norm += pow(wd->bc[i_state], 2);
+  }
   norm = sqrt(norm);
   printf("Norm: %g\n", norm);
+  if (norm == 0) {printf("Error: state has zero norm.\n"); exit(0);}
+  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
+    wd->bc[i_state] /= norm;
+  }
+  return;
+}
+
+void print_wfn(wfnData* wd) {
   char indices[1000];
   char form[100];
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
-    unsigned __int128 k_store = ik;
-    int skip = 0;
-    unsigned __int128 index = 0;
+  int n = wd->n_spin_up;
+  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
     strcpy(indices, "");
     for (int i = 0; i < n; i++) {
       strcpy(form, "");
-      k_array[i] = (k_store % b_dim_f);
-      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
-      k_store -= k_array[i];
-      k_store /= b_dim_f;
-      index += k_array[i];
-      sprintf(form, "%g ", k_array[i] - b_final);
+      sprintf(form, "%g ", wd->basis[i_state]->m_val[i]);
       strcat(indices, form);
-      if (i != n-1) {index *= b_dim_f;}
     }
-    // Enforce anti-symmetry
-    if (skip) {continue;}
-   //   printf("index: %d\n", index);
-
-    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %d %g\n", indices, (int) index, coeff[index]/norm);}
+    printf("%s %g\n", indices, wd->bc[i_state]);
   }
-  printf("Time: %g\n", (double) (end - start)/CLOCKS_PER_SEC);
-
   return;
-}      
+}
 
 void hierarchy(double l, double s, int n) {
   clock_t start, end;

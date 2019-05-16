@@ -279,7 +279,6 @@ void order_perm(int** perm, int n) {
 
 void perm_compress(int* perm, int** result, int n) { 
   int* seen = (int*) calloc(n, sizeof(int));
-
   for (int i = 0; i < n; i++) {
     int min = 1000;
     int j_min;
