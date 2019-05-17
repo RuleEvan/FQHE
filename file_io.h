@@ -16,7 +16,7 @@ typedef struct wfnData
   int n_eig;
   float b_mag;
   unsigned int n_sds_up, n_sds_down;
-  float *bc;
+  double *bc;
   int *n_shell, *l_shell, *j_shell, *jz_shell, *tz_shell;
   int *n_orb, *l_orb;
   float *j_orb;

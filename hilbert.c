@@ -1,6 +1,143 @@
 #include "hilbert.h"
 
-wfnData* shift_op(wfnData* wd, double m) {
+wfnData* u_dot_d(wfnData* wd) {
+  // Acts the dot product of the raising shift operator
+  // with the lowering shift operator on the given wavefunction
+  int n = wd->n_spin_up;
+  double m_max = n/2.0;
+  wfnData* wd_f = shift_op(shift_op(wd, m_max, 1), -m_max, 0);
+  for (int k = 0; k < n; k++) {
+    double m = k - m_max;
+    wfn_sum(wd_f, shift_op(shift_op(wd, m, 1), -m, 0), pow(-1, (n/2.0 - m)));
+  }
+
+  return wd_f;
+}
+
+wfnData* ud_tensor_ud(wfnData* wd, double j_u, double j_d, double j_tot, double m_tot) {
+  wfnData* wd_f;
+  int done_one = 0;
+  for (int im1 = 0; im1 < 2*j_u + 1; im1++) {
+    double m_u = im1 - j_u;
+    double m_d = m_tot - m_u;
+    if (fabs(m_d) > j_d) {continue;}
+    if (clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot) == 0) {continue;}
+    if (done_one == 0) {
+      wd_f = u_tensor_d(u_tensor_d(wd, j_d, m_d), j_u, m_u);
+      wfn_mult(wd_f, clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot));
+      done_one = 1;
+    } else {
+      wfn_sum(wd_f, u_tensor_d(u_tensor_d(wd, j_d, m_d), j_u, m_u), clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot));
+    }
+  }
+  return wd_f;
+}
+
+wfnData* uu_tensor_dd(wfnData* wd, double j_u, double j_d, double j_tot, double m_tot) {
+  wfnData* wd_f;
+  int done_one = 0;
+  for (int im1 = 0; im1 < 2*j_u + 1; im1++) {
+    double m_u = im1 - j_u;
+    double m_d = m_tot - m_u;
+    if (fabs(m_d) > j_d) {continue;}
+    if (clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot) == 0) {continue;}
+    if (done_one == 0) {
+      wd_f = u_tensor_u(d_tensor_d(wd, j_d, m_d), j_u, m_u);
+      wfn_mult(wd_f, clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot));
+      done_one = 1;
+    } else {
+      wfn_sum(wd_f, u_tensor_u(d_tensor_d(wd, j_d, m_d), j_u, m_u), clebsch_gordan(j_u, j_d, j_tot, m_u, m_d, m_tot));
+    }
+  }
+  return wd_f;
+}
+
+wfnData* u_tensor_d(wfnData* wd, double j_tot, double m_tot) {
+  int n = wd->n_spin_up;
+  if (j_tot > n) {printf("Impossibly large total angular momentum J = %d, J_max = %d\n", j_tot, n); exit(0);}
+  if (fabs(m_tot) > j_tot) {printf("Magnetic quantum number exceeds total angular momentum\n"); exit(0);}
+  wfnData* wd_f;
+  int done_one = 0;
+  for (int im1 = 0; im1 < n + 1; im1++) {
+    double m1 = im1 - n/2.0;
+    double m2 = m_tot - m1;
+    if (fabs(m2) > n/2.0) {continue;}
+    if (clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot) == 0) {continue;}
+    if (done_one == 0) {
+      wd_f = shift_op(shift_op(wd, m2, 1), m1, 0);
+      wfn_mult(wd_f, clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+      done_one = 1;
+    } else {
+      wfn_sum(wd_f, shift_op(shift_op(wd, m2, 1), m1, 0), clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+    }
+  }
+  return wd_f;
+}
+
+wfnData* u_tensor_u(wfnData* wd, double j_tot, double m_tot) {
+  int n = wd->n_spin_up;
+  if (j_tot > n) {printf("Impossibly large total angular momentum J = %d, J_max = %d\n", j_tot, n); exit(0);}
+  if (fabs(m_tot) > j_tot) {printf("Magnetic quantum number exceeds total angular momentum\n"); exit(0);}
+  wfnData* wd_f;
+  int done_one = 0;
+  for (int im1 = 0; im1 < n + 1; im1++) {
+    double m1 = im1 - n/2.0;
+    double m2 = m_tot - m1;
+    if (fabs(m2) > n/2.0) {continue;}
+    if (clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot) == 0) {continue;}
+    if (done_one == 0) {
+      wd_f = shift_op(shift_op(wd, m2, 0), m1, 0);
+      wfn_mult(wd_f, clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+      done_one = 1;
+    } else {
+      wfn_sum(wd_f, shift_op(shift_op(wd, m2, 0), m1, 0), clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+    }
+  }
+  return wd_f;
+}
+
+
+wfnData* d_tensor_d(wfnData* wd, double j_tot, double m_tot) {
+  int n = wd->n_spin_up;
+  if (j_tot > n) {printf("Impossibly large total angular momentum J = %d, J_max = %d\n", j_tot, n); exit(0);}
+  if (fabs(m_tot) > j_tot) {printf("Magnetic quantum number exceeds total angular momentum\n"); exit(0);}
+  wfnData* wd_f;
+  int done_one = 0;
+  for (int im1 = 0; im1 < n + 1; im1++) {
+    double m1 = im1 - n/2.0;
+    double m2 = m_tot - m1;
+    if (fabs(m2) > n/2.0) {continue;}
+    if (clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot) == 0) {continue;}
+    if (done_one == 0) {
+      wd_f = shift_op(shift_op(wd, m2, 1), m1, 1);
+      wfn_mult(wd_f, clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+      done_one = 1;
+    } else {
+      wfn_sum(wd_f, shift_op(shift_op(wd, m2, 1), m1, 1), clebsch_gordan(n/2.0, n/2.0, j_tot, m1, m2, m_tot));
+    }
+  }
+  return wd_f;
+}
+
+
+void wfn_sum(wfnData* wd1, wfnData* wd2, double fact) {
+
+  if (wd1->n_states != wd2->n_states) {printf("Incompatible wfns %d %d\n", wd1->n_states, wd2->n_states); exit(0);}
+  for (int i_state = 0; i_state < wd1->n_states; i_state++) {
+    wd1->bc[i_state] += wd2->bc[i_state]*fact;
+  }
+  return;
+}
+
+void wfn_mult(wfnData* wd, double fact) {
+  for (int i_state = 0; i_state < wd->n_states; i_state++) {
+    wd->bc[i_state] *= fact;
+  }
+  return;
+}
+
+
+wfnData* shift_op(wfnData* wd, double m, int i_type) {
   // Acts the shift operator on the given FQHE wfn
   // The standard shift operator raises the magnetic field by one unit b -> b + 1/2
   clock_t start, end;
@@ -8,22 +145,27 @@ wfnData* shift_op(wfnData* wd, double m) {
   start = clock();
   int n = wd->n_spin_up;
   int r_up = m + n/2.0;
+  int ph_sym = 0;
+  if (r_up == 0) {r_up = n; ph_sym = 1;}
   unsigned int perm_min = pow(2, r_up) - 1;
   unsigned int perm_max = pow(2, n) - pow(2, n - r_up);
   // B field is raised by one unit
   double b_initial = wd->b_mag;
   double b_final = wd->b_mag + 0.5;
+  if (i_type == 1) {b_final -= 1;}
   int b_dim_f = (int) (2*b_final + 1);
   double* coeff = (double*) calloc(pow(b_dim_f, n), sizeof(double));
+  double pre_fact = sqrt(gsl_sf_fact(n/2.0 - m)*gsl_sf_fact(n/2.0 + m)/gsl_sf_fact(n));
   for (unsigned int perm = perm_min; perm <= perm_max;) {
     for (int i_state = 0; i_state < wd->n_states; i_state++) {
       unsigned int index = 0;
       unsigned int p_store = perm;
       int bad_rep = 0;
-      double cg_fact = 1.0;
+      double cg_fact = pre_fact;
       if (wd->bc[i_state] == 0.0) {continue;}
       for (int i_part = 0; i_part < n; i_part++) {
         double m1 = (p_store % 2) - 0.5;
+        if (ph_sym) {m1 *= -1;}
         double m2 = wd->basis[i_state]->m_val[i_part];
         float mf = m1 + m2;
         if (fabs(mf) > b_final) {bad_rep = 1; break;}
@@ -31,7 +173,14 @@ wfnData* shift_op(wfnData* wd, double m) {
         p_store /= 2;
         index += mf + b_final;
         if (i_part != n - 1) {index *= b_dim_f;}
-        cg_fact *= clebsch_gordan(0.5, b_initial, b_final, m1, m2, mf);
+        if (i_type == 0) {
+          cg_fact *= clebsch_gordan(0.5, b_initial, b_final, m1, m2, mf);
+        } else if (i_type == 1 && m1 == 0.5) {
+          cg_fact *= -sqrt(2*b_initial*(b_initial - m2));
+        } else {
+          cg_fact *= sqrt(2*b_initial*(b_initial + m2));
+        }
+//        cg_fact *= clebsch_gordan(0.5, b_initial, b_final, m1, m2, mf);
       }
       if (bad_rep) {continue;}
       coeff[index] += cg_fact*wd->bc[i_state];
@@ -76,7 +225,7 @@ wfnData* shift_op(wfnData* wd, double m) {
       coeff[indexp] += coeff[index]*phase;
     }
   }
-  wd_f->n_states = 0;
+  wd_f->n_states = gsl_sf_choose(b_dim_f, n);
   for (unsigned int im = 0; im < m_num_max; im++) {
     unsigned int m_store = im;
     int skip = 0;
@@ -91,11 +240,11 @@ wfnData* shift_op(wfnData* wd, double m) {
       if (i != n-1) {index *= b_dim_f;}
     }
     if (skip) {continue;}
-    if (fabs(coeff[index]) > pow(10, -8)) {(wd_f->n_states)++;}
+  //  if (fabs(coeff[index]) > pow(10, -8)) {(wd_f->n_states)++;}
   }
 
   wd_f->basis = (slater_det**) calloc(wd_f->n_states, sizeof(slater_det*));
-  wd_f->bc = (float*) calloc(wd_f->n_states, sizeof(float));
+  wd_f->bc = (double*) calloc(wd_f->n_states, sizeof(double));
   unsigned int i_state = 0;
   for (unsigned int im = 0; im < m_num_max; im++) {
     unsigned int m_store = im;
@@ -111,7 +260,7 @@ wfnData* shift_op(wfnData* wd, double m) {
     }
     // Enforce anti-symmetry
     if (skip) {continue;}
-    if (fabs(coeff[index]) < pow(10, -8)) {continue;}
+//    if (fabs(coeff[index]) < pow(10, -8)) {continue;}
     wd_f->basis[i_state] = malloc(sizeof(slater_det*));
     wd_f->basis[i_state]->m_val = malloc(sizeof(float)*n);
     for (int i = 0; i < n; i++) {
@@ -142,6 +291,7 @@ void print_wfn(wfnData* wd) {
   char form[100];
   int n = wd->n_spin_up;
   for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
+    if (fabs(wd->bc[i_state]) < pow(10, -8)) {continue;}
     strcpy(indices, "");
     for (int i = 0; i < n; i++) {
       strcpy(form, "");
@@ -371,7 +521,7 @@ void hierarchy(double l, double s, int n) {
     if (skip) {continue;}
    //   printf("index: %d\n", index);
 
-    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %d %g\n", indices, (int) index, coeff[index]/norm);}
+    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %g\n", indices, coeff[index]/norm);}
   }
   printf("Time: %g\n", (double) (end - start)/CLOCKS_PER_SEC);
   return;

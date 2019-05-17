@@ -95,7 +95,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   wd->e_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
   wd->j_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
   wd->t_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
-  wd->bc = malloc(sizeof(float)*wd->n_states*wd->n_eig);
+  wd->bc = malloc(sizeof(double)*wd->n_states*wd->n_eig);
 
   printf("Reading in initial state wavefunction coefficients\n");
   for (int i = 0; i < wd->n_eig; i++) {
@@ -113,7 +113,9 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
     wd->t_nuc[i] = it_nuc/2.0;
     if (i == i_eig) {
       for (int j = 0; j < wd->n_states; j++) {
-        fread(&wd->bc[j], sizeof(float), 1, in_file);
+        float bc_float;
+        fread(&bc_float, sizeof(float), 1, in_file);
+        wd->bc[j] = bc_float;
       }
     } else {
       fseek(in_file, sizeof(float)*wd->n_states, SEEK_CUR);
