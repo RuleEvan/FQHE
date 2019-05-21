@@ -129,6 +129,16 @@ void wfn_sum(wfnData* wd1, wfnData* wd2, double fact) {
   return;
 }
 
+double wfn_dot(wfnData* wd1, wfnData* wd2) {
+  double dot = 0.0;
+  if (wd1->n_states != wd2->n_states) {printf("Incompatible wfns %d %d\n", wd1->n_states, wd2->n_states); exit(0);}
+  for (int i_state = 0; i_state < wd1->n_states; i_state++) {
+    dot += wd1->bc[i_state]*wd2->bc[i_state];
+  }
+  
+  return dot;
+}
+
 void wfn_mult(wfnData* wd, double fact) {
   for (int i_state = 0; i_state < wd->n_states; i_state++) {
     wd->bc[i_state] *= fact;
@@ -136,6 +146,63 @@ void wfn_mult(wfnData* wd, double fact) {
   return;
 }
 
+
+wfnData* order_wfn(wfnData* wd) {
+  // Orders the wfn basis according to my prescription
+  clock_t start, end;
+  int n = wd->n_spin_up;
+  int b_dim_f = 2*wd->b_mag + 1;
+  int* compress = (int*) calloc(n, sizeof(int));
+  int *m_array = (int*) malloc(sizeof(int)*n);
+  wfnData* wd_f = malloc(sizeof(*wd_f)); 
+  wd_f->b_mag = wd->b_mag;
+  wd_f->n_spin_up = n;
+  wd_f->n_states = gsl_sf_choose(b_dim_f, n);
+  wd_f->basis = (slater_det**) calloc(wd_f->n_states, sizeof(slater_det*));
+  wd_f->bc = (double*) calloc(wd_f->n_states, sizeof(double));
+  double* coeff = (double*) calloc(pow(b_dim_f, n), sizeof(double));
+  
+  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
+    unsigned int index = 0;
+    for (int i = 0; i < n; i++) {
+      m_array[i] = wd->basis[i_state]->m_val[i] + wd->b_mag;
+    }
+    perm_compress(m_array, &compress, n);
+    int phase = perm_sign(compress, n);
+    order_perm(&m_array, n);
+    for (int i = 0; i < n; i++) {
+      index += m_array[i];
+      if (i != n-1) {index *= b_dim_f;}
+    }
+    coeff[index] = wd->bc[i_state]*phase;
+  }
+  unsigned int m_num_max = pow(b_dim_f, n); 
+  unsigned int i_state = 0;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
+    int skip = 0;
+    unsigned int index = 0;
+    for (int i = 0; i < n; i++) {
+      m_array[i] = (m_store % b_dim_f);
+      if (i > 0) {if (m_array[i] <= m_array[i - 1]) {skip = 1; break;}}
+      m_store -= m_array[i];
+      m_store /= b_dim_f;
+      index += m_array[i];
+      if (i != n-1) {index *= b_dim_f;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+    wd_f->basis[i_state] = malloc(sizeof(slater_det*));
+    wd_f->basis[i_state]->m_val = malloc(sizeof(float)*n);
+    for (int i = 0; i < n; i++) {
+      wd_f->basis[i_state]->m_val[i] = m_array[i] - wd_f->b_mag;
+    }
+    wd_f->bc[i_state] = coeff[index];
+    i_state++;
+  }
+
+  return wd_f;
+}   
 
 wfnData* shift_op(wfnData* wd, double m, int i_type) {
   // Acts the shift operator on the given FQHE wfn
@@ -299,11 +366,13 @@ void print_wfn(wfnData* wd) {
       strcat(indices, form);
     }
     printf("%s %g\n", indices, wd->bc[i_state]);
+  //   printf("%g\n", wd->bc[i_state]);
+
   }
   return;
 }
 
-void hierarchy(double l, double s, int n) {
+wfnData* hierarchy(double l, double s, int n) {
   clock_t start, end;
   double cpu_time;
   start = clock();
@@ -393,7 +462,7 @@ void hierarchy(double l, double s, int n) {
     int done = 0;
     while (!done) {
       unsigned int index = 0;
-      double cg_fact = phase;
+      double cg_fact = pre_fact*phase;
       int anti_sym = 1;
       for (int i = 0; i < bdim; i++) {bseen[i] = 0;};
       for (int i = 0; i < n; i++) {
@@ -416,11 +485,11 @@ void hierarchy(double l, double s, int n) {
     //    printf("q: %g m: %g ri: %g si: %g me: %g m_final: %g\n", q, m, ri, si, me, m_final);
         index += m_f + b;
         index *= bdim;
-     //   cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*(m + me -m_f));
+        //cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*(m_f - me -m));
         cg_fact *= gsl_sf_fact(n/2.0 - 0.5 - ri)*gsl_sf_fact(n/2.0 - 0.5 + ri);
         cg_fact *= sqrt(gsl_sf_fact(b + m_f)*gsl_sf_fact(b - m_f)); 
         cg_fact *= 1.0/(gsl_sf_fact(n/2.0 - 0.5 + q - ri - s)*gsl_sf_fact(n/2.0 - 0.5 - q + ri - s));
-      //  cg_fact *= 1.0/sqrt(gsl_sf_gamma(s - q + 1)*gsl_sf_gamma(s + q + 1)*gsl_sf_gamma(l - m + 1)*gsl_sf_gamma(l + m + 1));
+        //cg_fact *= 1.0/sqrt(gsl_sf_gamma(s - q + 1)*gsl_sf_gamma(s + q + 1)*gsl_sf_gamma(l - m + 1)*gsl_sf_gamma(l + m + 1));
       }
       index /= bdim;
      // if (done) {exit(0);}
@@ -432,9 +501,13 @@ void hierarchy(double l, double s, int n) {
 //    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
 //  }
   double norm = 0.0;
-  unsigned int k_num_max = pow(bdim, n);
+  unsigned int m_num_max = pow(bdim, n);
   int* compress = (int*) malloc(sizeof(int)*n);
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
+  wfnData* wd_f = malloc(sizeof(*wd_f)); 
+  wd_f->b_mag = b;
+  wd_f->n_spin_up = n;
+  printf("m_num: %u\n", m_num_max);
+  for (unsigned __int128 ik = 0; ik < m_num_max; ik++) {
     unsigned __int128 k_store = ik;
     int perm = 0;
     int repeat = 0;
@@ -454,78 +527,46 @@ void hierarchy(double l, double s, int n) {
     if (repeat) {continue;}
     if (coeff[index] == 0.0) {continue;}
     if (perm) {
-/*      printf("Before\n");
-      for (int h = 0; h < n; h++) {
-        printf("%d\n", k_array[h]);
-      }
-*/
       perm_compress(k_array, &compress, n);
       int phase = perm_sign(compress, n);
       order_perm(&k_array, n);
-/*
-      printf("After phase = %d\n", phase);
-
-      for (int h = 0; h < n; h++) {
-        printf("%d\n", k_array[h]);
-      }
-*/
-      int indexp = 0;
+      unsigned __int128 indexp = 0;
       for (int i = 0; i < n; i++) {
         indexp += k_array[i];
         if (i != n-1) {indexp *= bdim;}
       }
-  //    printf("%d %d %g %g\n", (int) index, (int) indexp, coeff[index], coeff[indexp]);
       coeff[indexp] += coeff[index]*phase;
     }
   }
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
-    unsigned __int128 k_store = ik;
+  wd_f->n_states = gsl_sf_choose(bdim, n);
+  wd_f->basis = (slater_det**) calloc(wd_f->n_states, sizeof(slater_det*));
+  wd_f->bc = (double*) calloc(wd_f->n_states, sizeof(double));
+  unsigned int i_state = 0;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
     int skip = 0;
-    unsigned __int128 index = 0;
+    unsigned int index = 0;
     for (int i = 0; i < n; i++) {
-      k_array[i] = (k_store % bdim);
+      k_array[i] = (m_store % bdim);
       if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
-      k_store -= k_array[i];
-      k_store /= bdim;
+      m_store -= k_array[i];
+      m_store /= bdim;
       index += k_array[i];
       if (i != n-1) {index *= bdim;}
     }
     // Enforce anti-symmetry
     if (skip) {continue;}
-   //   printf("index: %d\n", index);
-
-    if (fabs(coeff[index]) > pow(10, -10)) {norm += pow(coeff[index], 2);}
-  }
-  end = clock();
-  norm = sqrt(norm);
-  printf("Norm: %g\n", norm);
-  char indices[1000];
-  char form[100];
-  for (unsigned __int128 ik = 0; ik < k_num_max; ik++) {
-    unsigned __int128 k_store = ik;
-    int skip = 0;
-    unsigned __int128 index = 0;
-    strcpy(indices, "");
+//    if (fabs(coeff[index]) < pow(10, -8)) {continue;}
+    wd_f->basis[i_state] = malloc(sizeof(slater_det*));
+    wd_f->basis[i_state]->m_val = malloc(sizeof(float)*n);
     for (int i = 0; i < n; i++) {
-      strcpy(form, "");
-      k_array[i] = (k_store % bdim);
-      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
-      k_store -= k_array[i];
-      k_store /= bdim;
-      index += k_array[i];
-      sprintf(form, "%g ", k_array[i] - b);
-      strcat(indices, form);
-      if (i != n-1) {index *= bdim;}
+      wd_f->basis[i_state]->m_val[i] = k_array[i] - wd_f->b_mag;
     }
-    // Enforce anti-symmetry
-    if (skip) {continue;}
-   //   printf("index: %d\n", index);
-
-    if (fabs(coeff[index]) > pow(10, -10)) {printf("%s %g\n", indices, coeff[index]/norm);}
+    wd_f->bc[i_state] = coeff[index];
+    i_state++;
   }
-  printf("Time: %g\n", (double) (end - start)/CLOCKS_PER_SEC);
-  return;
-}
+  return wd_f;
+}   
  
  
 void compute_1body_energy(int np, double m, double e_shift) {
@@ -586,17 +627,49 @@ double xme(int m1p, int m2p, int m1, int m2) {
   return xme;
 }
 
-void generate_interaction_file(double l) {
-
+void generate_interaction_file(double q, int ll) {
+  double l = q + ll; 
   for (int j = 0; j <= (int) 2*l; j++) {
     double h = 0;
     if ((int) ( 2*l + j) % 2 == 0) {continue;}
     for (int n = 0; n <= (int) 2*l; n++) {
-      h += pow(-1.0, 2*l + j)/sqrt(l)*pow(2*l + 1, 2)*gsl_sf_coupling_6j ((int) 2*l, (int) 2*l, (int) 2*n, (int) 2*l, (int) 2*l, (int) 2*j)*pow(gsl_sf_coupling_3j((int) 2*l, (int) 2*n, (int) 2*l, (int) -2*l, 0, (int) 2*l), 2.0);
+      h += pow(-1.0, 2*q + j)/sqrt(q)*pow(2*l + 1, 2)*six_j(j, l, l, n, l, l)*pow(three_j(l, n, l, -q, 0, q), 2.0);
     }
     
 //    printf("%d %d %d %d %d %d %g\n", 1, 1, 1, 1, j, 0, );
     printf("%d %d %d %d %d %d %g\n", 1, 1, 1, 1, j, 1, h);
+  }
+
+  return;
+}
+
+void generate_multilevel_interaction_file(double m) {
+  for (int ij1 = 0; ij1 <= 1; ij1++) {
+    double j1 = m + ij1;
+    for (int ij2 = 0; ij2 <= 1; ij2++) {
+      double j2 = m + ij2;
+      for (int ij3 = 0; ij3 <= 1; ij3++) {
+        double j3 = m + ij3;
+        for (int ij4 = 0; ij4 <= 1; ij4++) {
+          double j4 = m + ij4;
+           
+          for (int j = 0; j <= (int) 2*(m+1); j++) {
+            if (j > j1 + j2 || j > j3 + j4 || j < fabs(j1 - j2) || j < fabs(j3 - j4)) {continue;}
+            double h = 0.0;
+            for (int l = 0; l <= (int) 2*(m+1); l++) {
+              h += pow(-1.0, 2*m + j + 2*j3 + j4 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j3, -m, 0, m)*three_j(j2, l, j4, -m, 0, m)*six_j(j, j2, j1, l, j3, j4);
+              h += pow(-1.0, 1.0 + j3 + j4 - j + 2*m + j + 2*j4 + j3 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j4, -m, 0, m)*three_j(j2, l, j3, -m, 0, m)*six_j(j, j2, j1, l, j4, j3);
+            }
+            h *= 1/sqrt(m);
+            h *= 0.5; 
+            if (j1 != j2) {h *= sqrt(2.0);}
+            if (j3 != j4) {h *= sqrt(2.0);}
+            if (fabs(h) < pow(10, -8)) {continue;}
+            printf("%d %d %d %d %d %d %g\n", 1 + ij1, 1 + ij2, 1 + ij3, 1 + ij4, j, 1, h);
+          }
+        }
+      }
+    }
   }
 
   return;
