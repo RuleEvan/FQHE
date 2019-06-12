@@ -353,12 +353,57 @@ void normalize_wfn(wfnData* wd) {
   return;
 }
 
+double wigner_square(double b, double m, double theta, double** m_cache) {
+  int j_max = 2*b;
+  double w = 0.0;
+  int im = m + b;
+  if ((*m_cache)[im] == -100.014) {
+    for (int j = 0; j <= j_max; j++) {
+      w += sqrt(2*j+1)*gsl_sf_fact(2*b)/sqrt(gsl_sf_fact(2*b-j)*gsl_sf_fact(2*b+j+1))*clebsch_gordan(b,b,j,m,-m,0)*gsl_sf_legendre_Pl(j,cos(theta));
+    }
+    (*m_cache)[im] = w;
+  } else {
+    w = (*m_cache)[im];
+  }
+
+  return w;
+}
+
+double anti_wigner(int n, double b, float* m_vals, double theta, double** m_cache) {
+  double w = 0.0;
+  for (int i = 0; i < n; i++) {
+    w += pow(-1.0, b-m_vals[i])*wigner_square(b, m_vals[i], theta, m_cache);
+  }
+
+  return w;
+}
+
+double charge_density(wfnData* wd, double theta) {
+  double rho = 0.0;
+  double b = wd->b_mag;
+  int n = wd->n_spin_up;
+  double fact = (2*b + 1)/(4*M_PI)/n;
+  double* m_cache = (double*) malloc(sizeof(double)*(2*b + 1));
+  for (int i = 0; i < 2*b + 1; i++) {
+    m_cache[i] = -100.014;
+  }
+  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
+    if (fabs(wd->bc[i_state]) < pow(10, -6)) {continue;}
+    rho += pow(wd->bc[i_state], 2)*anti_wigner(n, b, wd->basis[i_state]->m_val, theta, &m_cache);
+
+  }
+  rho *= fact;
+  rho = n/(4.0*M_PI) - n*rho;
+
+  return rho;
+}
+
 void print_wfn(wfnData* wd) {
   char indices[1000];
   char form[100];
   int n = wd->n_spin_up;
   for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
-    if (fabs(wd->bc[i_state]) < pow(10, -8)) {continue;}
+    if (fabs(wd->bc[i_state]) < pow(10, -4)) {continue;}
     strcpy(indices, "");
     for (int i = 0; i < n; i++) {
       strcpy(form, "");
@@ -627,23 +672,29 @@ double xme(int m1p, int m2p, int m1, int m2) {
   return xme;
 }
 
-void generate_interaction_file(double q, int ll) {
+void generate_interaction_file(double q, int ll, int iv) {
   double l = q + ll; 
   for (int j = 0; j <= (int) 2*l; j++) {
     double h = 0;
     if ((int) ( 2*l + j) % 2 == 0) {continue;}
     for (int n = 0; n <= (int) 2*l; n++) {
-      h += pow(-1.0, 2*q + j)/sqrt(q)*pow(2*l + 1, 2)*six_j(j, l, l, n, l, l)*pow(three_j(l, n, l, -q, 0, q), 2.0);
+      double v = pow(-1.0, 2*q + j)/sqrt(q)*pow(2*l + 1, 2)*six_j(j, l, l, n, l, l)*pow(three_j(l, n, l, -q, 0, q), 2.0);
+      if (iv == 1) {
+        if (n != 0) {
+          v *= (2*n + 1)/(n*(n+1));
+        }
+      }
+      h += v;
     }
     
 //    printf("%d %d %d %d %d %d %g\n", 1, 1, 1, 1, j, 0, );
-    printf("%d %d %d %d %d %d %g\n", 1, 1, 1, 1, j, 1, h);
+    printf("%d %d %d %d %d %d %g\n", ll + 1, ll+ 1, ll + 1, ll + 1, j, 1, h);
   }
 
   return;
 }
 
-void generate_multilevel_interaction_file(double m) {
+void generate_multilevel_interaction_file(double m, int iv) {
   for (int ij1 = 0; ij1 <= 1; ij1++) {
     double j1 = m + ij1;
     for (int ij2 = 0; ij2 <= 1; ij2++) {
@@ -657,11 +708,18 @@ void generate_multilevel_interaction_file(double m) {
             if (j > j1 + j2 || j > j3 + j4 || j < fabs(j1 - j2) || j < fabs(j3 - j4)) {continue;}
             double h = 0.0;
             for (int l = 0; l <= (int) 2*(m+1); l++) {
-              h += pow(-1.0, 2*m + j + 2*j3 + j4 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j3, -m, 0, m)*three_j(j2, l, j4, -m, 0, m)*six_j(j, j2, j1, l, j3, j4);
-              h += pow(-1.0, 1.0 + j3 + j4 - j + 2*m + j + 2*j4 + j3 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j4, -m, 0, m)*three_j(j2, l, j3, -m, 0, m)*six_j(j, j2, j1, l, j4, j3);
+              double v = pow(-1.0, 2*m + j + 2*j3 + j4 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j3, -m, 0, m)*three_j(j2, l, j4, -m, 0, m)*six_j(j, j2, j1, l, j3, j4);
+              v += pow(-1.0, 1.0 + j3 + j4 - j + 2*m + j + 2*j4 + j3 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j4, -m, 0, m)*three_j(j2, l, j3, -m, 0, m)*six_j(j, j2, j1, l, j4, j3);
+              if (iv == 1) {
+                if (l != 0) {
+                  v *= (2*l + 1)/(l*(l+1));
+                }
+              }
+              h += v;
             }
             h *= 1/sqrt(m);
             h *= 0.5; 
+            h *= pow(-1.0, j1 + j2 + j3 + j4);
             if (j1 != j2) {h *= sqrt(2.0);}
             if (j3 != j4) {h *= sqrt(2.0);}
             if (fabs(h) < pow(10, -8)) {continue;}
@@ -675,3 +733,205 @@ void generate_multilevel_interaction_file(double m) {
   return;
 }
 
+wfnData* deform_hierarchy(double l, double s, int n) {
+  clock_t start, end;
+  double cpu_time;
+  start = clock();
+  double b = n - 1 + l - s;
+  int bdim = 2*b + 1;
+  printf("Magnetic field b = %g\n", b);
+  int *k_array = (int*) malloc(sizeof(int)*n);
+  double *m_array = (double*) malloc(sizeof(double)*n);
+  double *q_array = (double*) malloc(sizeof(double)*n);
+  double *m_final = (double*) calloc(n, sizeof(double));
+  double *me_array = (double*) calloc(n, sizeof(double));
+  double *coeff = (double*) calloc(pow(bdim, n), sizeof(double));
+  unsigned int* perm_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
+  unsigned int* perm_min_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
+  unsigned int* perm_max_array = (unsigned int*) malloc(sizeof(unsigned int)*n);
+  // Populate m and q arrays
+  int i_hold = 0;
+  int* bseen = (int*) calloc(bdim, sizeof(int));
+  // Setup m and q values
+  for (int i = 0; i < (int) 2*l + 1; i++) {
+    double l_i = -l + i;
+    for (int j = 0; j < (int) 2*s + 1; j++) {
+      double s_j = -s + j;
+      m_array[i_hold] = l_i;
+      q_array[i_hold] = s_j;
+      i_hold++;
+    }
+  }
+  // Choose one permutation of m and q values
+  for (int i = 0; i < n; i++) {
+    k_array[i] = i;
+  }
+  // Don't really need this prefactor because we normalize anyway
+  double pre_fact = sqrt((2*s + 1)*(n - 2*s + 2* l)*(2*n + 2*l - 2*s - 1));
+  pre_fact *= gsl_sf_gamma(n - 2*s)*sqrt(gsl_sf_gamma(2*s + 1.0)*gsl_sf_gamma(2*l + 1.0)*gsl_sf_gamma(n + 2*l - 2*s));
+  pre_fact /= sqrt(gsl_sf_gamma(n + 1.0)*gsl_sf_gamma(n - 2*s + 2*l + 1)*gsl_sf_gamma(2*n + 2*l - 2*s)*gsl_sf_gamma(n)); 
+//  double pre_fact = 1.0;
+  // Loop over all vortex coupling values
+
+  int me_dim = n - 2*s;
+  unsigned int ime_max = pow(me_dim, n);
+
+  printf("IME MAX: %u\n", ime_max);
+  // ime is an integer that encodes the m_e(i) values for all i,
+  // m_e(i) is the magnetic quantum number of the electron spinor [u_i]^{(N-1)/2 - s}
+  for (unsigned int ime = 0; ime < ime_max; ime++) {
+    if (ime % 10000 == 0) {printf("%g %\n", 100.0*((double) ime)/((double) ime_max));}
+    unsigned int ime_store = ime;
+    // Some realizations of m_e(i) are not physical, bad_rep keeps track of this
+    int bad_rep = 0;
+    // Loop over each electron
+    double me_tot = 0.0;
+    for (int i = 0; i < n; i++) {
+      // Set the value of m_e(i) by modding ime by the appropriate factor
+      me_array[i] = ime_store % me_dim;
+      ime_store -= me_array[i];
+      ime_store /= me_dim;
+      // Translate between number of spin-up electrons and physical m_e values
+      me_array[i] -= ((n - 1)/2.0 - s);
+      // r_up gives the number of spin-up electrons in the vortex spinor of particle i
+      int r_up = q_array[k_array[i]] - me_array[i] + (n-1)/2.0;
+      if (r_up < 0) {bad_rep = 1; break;}
+      perm_min_array[i] = pow(2, r_up) - 1;
+      perm_array[i] = perm_min_array[i];
+      perm_max_array[i] = pow(2, n - 1) - pow(2, n - 1 - r_up);
+      m_final[i] = m_array[k_array[i]] + me_array[i] -(n-1)/2.0;
+      me_tot += me_array[i];
+    }
+    if (bad_rep) {continue;}
+    int phase = pow(-1.0, 1.5*n - 3.0*pow(n, 2)/2.0 + 3.0*me_tot + n*s);
+    for (int i = 0; i < n; i++) {
+      int mv = perm_array[i];
+      for (int j = 0; j < n - 1; j++) {
+        if (mv % 2) {
+          if (j >= i) {
+            m_final[j + 1]++;
+          } else {
+            m_final[j]++;
+          }
+  
+        }
+        mv -= (mv % 2);
+        mv /= 2;
+      }
+    }
+
+    int done = 0;
+    while (!done) {
+      unsigned int index = 0;
+      double cg_fact = 1.0;
+      int anti_sym = 1;
+      for (int i = 0; i < bdim; i++) {bseen[i] = 0;};
+      for (int i = 0; i < n; i++) {
+        double m_f = m_final[i];
+        int imf = m_f + b;
+        if (bseen[imf]) {anti_sym = 0; break;}  
+        bseen[imf] = 1;
+      }
+      if (!anti_sym) {
+      //  printf("Not anti-sym\n");
+        increment(&perm_array, perm_min_array, perm_max_array, &m_final, n, 0, &done);
+        continue;
+      }
+      for (int i = 0; i < n; i++) {
+        double q = q_array[k_array[i]];
+        double me = me_array[i];
+        double ri = q - me;
+        double m = m_array[k_array[i]];
+        double m_f = m_final[i];
+        double si = m_f - m - me;
+    //    printf("q: %g m: %g ri: %g si: %g me: %g m_final: %g\n", q, m, ri, si, me, m_final);
+        index += m_f + b;
+        index *= bdim;
+        //cg_fact *= pow(-1.0, 1.5 - 3.0*n/2.0 - ri + q + s + 2*(m_f - me -m));
+        if (i == 0) {
+          cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s + 1, me, ri, q);
+        } else {
+          cg_fact *= clebsch_gordan((n-1)/2.0 - s, (n-1)/2.0, s + 0, me, ri, q);
+        }
+        cg_fact *= clebsch_gordan(l, (n-1)/2.0 - s, (n-1)/2.0 + l - s, m, me, m + me);
+        cg_fact *= clebsch_gordan(l + (n-1)/2.0 -s, (n-1)/2.0, l - s + n - 1, m + me, si, m_f);
+        cg_fact *= sqrt(gsl_sf_fact((n-1)/2.0 - ri)*gsl_sf_fact((n-1)/2.0 + ri)*gsl_sf_fact((n-1)/2.0 - si)*gsl_sf_fact((n-1)/2.0 + si))/gsl_sf_fact(n-1);
+      }
+      index /= bdim;
+     // if (done) {exit(0);}
+      increment(&perm_array, perm_min_array, perm_max_array, &m_final, n, 0, &done);
+      coeff[index] += cg_fact;
+    }
+  }
+//  for (int i = 0; i < pow(bdim, n); i++) {
+//    if (fabs(coeff[i]) > pow(10, -10)) {printf("%g\n", coeff[i]);}
+//  }
+  double norm = 0.0;
+  unsigned int m_num_max = pow(bdim, n);
+  int* compress = (int*) malloc(sizeof(int)*n);
+  wfnData* wd_f = malloc(sizeof(*wd_f)); 
+  wd_f->b_mag = b;
+  wd_f->n_spin_up = n;
+  printf("m_num: %u\n", m_num_max);
+  for (unsigned __int128 ik = 0; ik < m_num_max; ik++) {
+    unsigned __int128 k_store = ik;
+    int perm = 0;
+    int repeat = 0;
+    unsigned __int128 index = 0;
+    for (int i = 0; i < bdim; i++) {bseen[i] = 0;}
+
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (k_store % bdim);
+      if (bseen[k_array[i]]) {repeat = 1; break;}
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {perm = 1;}}
+      k_store -= k_array[i];
+      k_store /= bdim;
+      bseen[k_array[i]] = 1;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    if (repeat) {continue;}
+    if (coeff[index] == 0.0) {continue;}
+    if (perm) {
+      perm_compress(k_array, &compress, n);
+      int phase = perm_sign(compress, n);
+      order_perm(&k_array, n);
+      unsigned __int128 indexp = 0;
+      for (int i = 0; i < n; i++) {
+        indexp += k_array[i];
+        if (i != n-1) {indexp *= bdim;}
+      }
+      coeff[indexp] += coeff[index]*phase;
+    }
+  }
+  wd_f->n_states = gsl_sf_choose(bdim, n);
+  wd_f->basis = (slater_det**) calloc(wd_f->n_states, sizeof(slater_det*));
+  wd_f->bc = (double*) calloc(wd_f->n_states, sizeof(double));
+  unsigned int i_state = 0;
+  for (unsigned int im = 0; im < m_num_max; im++) {
+    unsigned int m_store = im;
+    int skip = 0;
+    unsigned int index = 0;
+    for (int i = 0; i < n; i++) {
+      k_array[i] = (m_store % bdim);
+      if (i > 0) {if (k_array[i] <= k_array[i - 1]) {skip = 1; break;}}
+      m_store -= k_array[i];
+      m_store /= bdim;
+      index += k_array[i];
+      if (i != n-1) {index *= bdim;}
+    }
+    // Enforce anti-symmetry
+    if (skip) {continue;}
+//    if (fabs(coeff[index]) < pow(10, -8)) {continue;}
+    wd_f->basis[i_state] = malloc(sizeof(slater_det*));
+    wd_f->basis[i_state]->m_val = malloc(sizeof(float)*n);
+    for (int i = 0; i < n; i++) {
+      wd_f->basis[i_state]->m_val[i] = k_array[i] - wd_f->b_mag;
+    }
+    wd_f->bc[i_state] = coeff[index];
+    i_state++;
+  }
+  return wd_f;
+}
+
+  

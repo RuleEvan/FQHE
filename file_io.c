@@ -4,7 +4,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   wfnData *wd = malloc(sizeof(*wd));
   FILE *in_file;
   // Read in initial wavefunction data
-  printf("Opening file\n");
+//  printf("Opening file\n");
   in_file = fopen(wfn_file, "rb");
   int junk;
   fread(&junk, sizeof(int), 1, in_file);
@@ -16,7 +16,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   fread(&wd->n_spin_up, sizeof(int), 1, in_file);
   fread(&wd->n_spin_down, sizeof(int), 1, in_file);
   wd->n_data = wd->n_spin_up + wd->n_spin_down;
-  printf("Initial state contains %d spin up and %d spin down electrons\n", wd->n_spin_up, wd->n_spin_down);
+//  printf("Initial state contains %d spin up and %d spin down electrons\n", wd->n_spin_up, wd->n_spin_down);
 
   fread(&junk, sizeof(int), 1, in_file);
 //  fread(&junk, sizeof(int), 1, in_file);
@@ -24,7 +24,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   fread(&n_spin_up_orbs, sizeof(int), 1, in_file);
   fread(&n_spin_down_orbs, sizeof(int), 1, in_file);
   wd->n_orbits = n_spin_up_orbs;
-  printf("Model space contains %d orbitals\n", n_spin_up_orbs);
+ // printf("Model space contains %d orbitals\n", n_spin_up_orbs);
   wd->n_orb = (int*) malloc(sizeof(int)*wd->n_orbits);
   wd->l_orb = (int*) malloc(sizeof(int)*wd->n_orbits);
   wd->j_orb = (float*) malloc(sizeof(float)*wd->n_orbits);
@@ -38,7 +38,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
     fread(&w_orb, sizeof(int), 1, in_file);
   }
   wd->b_mag = wd->j_orb[0];
-  printf("mag: %g\n", wd->b_mag);
+//  printf("mag: %g\n", wd->b_mag);
   for (int i = 0; i < n_spin_down_orbs; i++) {
     int n_orb, j_orb, l_orb, pi_orb, w_orb;
     fread(&n_orb, sizeof(int), 1, in_file);
@@ -51,7 +51,7 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   fread(&n_sps_up, sizeof(int), 1, in_file);
   fread(&n_sps_down, sizeof(int), 1, in_file);
   wd->n_shells = n_sps_up;
-  printf("Number of single particle states: %d\n", wd->n_shells);
+//  printf("Number of single particle states: %d\n", wd->n_shells);
   wd->n_shell = (int*) malloc(sizeof(int)*wd->n_shells);
   wd->j_shell = (int*) malloc(sizeof(int)*wd->n_shells);
   wd->l_shell = (int*) malloc(sizeof(int)*wd->n_shells);
@@ -88,16 +88,16 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
   fread(&junk, sizeof(int), 1, in_file);
   fread(&junk, sizeof(int), 1, in_file);
   fread(&wd->n_states, sizeof(long long int), 1, in_file);
-  printf("The model space has %d shells for a total basis size of %d\n", wd->n_shells, wd->n_states);
+ // printf("The model space has %d shells for a total basis size of %d\n", wd->n_shells, wd->n_states);
   fread(&wd->n_eig, sizeof(int), 1, in_file);
-  printf("Initial state file contains %d eigenstates\n", wd->n_eig);
+//  printf("Initial state file contains %d eigenstates\n", wd->n_eig);
   
   wd->e_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
   wd->j_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
   wd->t_nuc =  (float*) malloc(sizeof(float)*wd->n_eig);
   wd->bc = malloc(sizeof(double)*wd->n_states*wd->n_eig);
 
-  printf("Reading in initial state wavefunction coefficients\n");
+  //printf("Reading in initial state wavefunction coefficients\n");
   for (int i = 0; i < wd->n_eig; i++) {
     fread(&junk, sizeof(int), 1, in_file);
     int vec_index;
@@ -122,8 +122,8 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
     }
   }
   fclose(in_file);
-  printf("Done.\n");
-  printf("Reading in basis\n");
+ // printf("Done.\n");
+ // printf("Reading in basis\n");
   in_file = fopen(basis_file, "rb");
   fread(&junk, sizeof(int), 1, in_file);
   fread(&junk, sizeof(int), 1, in_file);
@@ -169,11 +169,76 @@ wfnData* read_binary_wfn_data(char *wfn_file, char *basis_file, int i_eig) {
       wd->basis[i]->m_val[j] = im_set[j]/2.0 - wd->j_orb[0];
     }*/
   }
-  printf("Done.\n");
+//  printf("Done.\n");
   fclose(in_file);
   
   return wd;
 }
+
+void increment_hole(unsigned int **perm, unsigned int *perm_min, unsigned int *perm_max, double** m_final, int n, int i, int i_hole, int* done) {
+  if ((*perm)[i] == perm_max[i]) {
+    int pi = (*perm)[i];
+    int pf = perm_min[i];
+    (*perm)[i] = pf;
+    if (i < n - 1) {
+      if (i != i_hole ) {
+        for (int j = 0; j < n - 1; j++) {
+          if (pi % 2) {
+            if (j >= i) {
+              (*m_final)[j + 1]--;
+            } else {
+              (*m_final)[j]--;
+            }
+          }
+          if (pf % 2) {
+            if (j >= i) {
+              (*m_final)[j + 1]++;
+            } else {
+              (*m_final)[j]++;
+            }
+          }
+          pi -= (pi % 2);
+          pi /= 2;
+          pf -= (pf % 2);
+          pf /= 2;
+        } 
+      }
+      increment_hole(perm, perm_min, perm_max, m_final, n, i + 1, i_hole, done);
+    } else {
+      *done = 1;
+      return;
+    }
+  } else {
+    int pi = (*perm)[i];
+    int pf = next_perm(pi);
+    (*perm)[i] = pf;
+    if (i != i_hole) {
+      for (int j = 0; j < n - 1; j++) {
+        if (pi % 2) {
+          if (j >= i) {
+            (*m_final)[j + 1]--;
+          } else {
+            (*m_final)[j]--;
+          }
+        }
+        if (pf % 2) {
+          if (j >= i) {
+            (*m_final)[j + 1]++;
+          } else {
+            (*m_final)[j]++;
+          }
+        }
+        pi -= (pi % 2);
+        pi /= 2;
+        pf -= (pf % 2);
+        pf /= 2;
+      } 
+    }
+  }
+  //exit(0);
+  return;
+}
+
 
 void increment(unsigned int **perm, unsigned int *perm_min, unsigned int *perm_max, double** m_final, int n, int i, int* done) {
   if ((*perm)[i] == perm_max[i]) {

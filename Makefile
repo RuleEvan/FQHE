@@ -3,8 +3,8 @@ CFLAGS=-c -Wall -lm -ldl
 
 all: fqhe
 
-fqhe: main.o hilbert.o lanczos.o lebedev.o comb.o file_io.o angular.o
-	$(CC) main.o hilbert.o lanczos.o lebedev.o comb.o file_io.o angular.o -o fqhe -lm -ldl -lgsl -lgslcblas
+fqhe: main.o composite.o hilbert.o lanczos.o lebedev.o comb.o file_io.o angular.o
+	$(CC) main.o composite.o hilbert.o lanczos.o lebedev.o comb.o file_io.o angular.o -o fqhe -lm -ldl -lgsl -lgslcblas
 
 main.o: main.c
 	$(CC) $(CFLAGS) main.c
@@ -23,6 +23,9 @@ comb.o: comb.c
 
 file_io.o: file_io.c
 	$(CC) $(CFLAGS) file_io.c
+
+composite.o: composite.c
+	$(CC) $(CFLAGS) composite.c
 
 angular.o: angular.c
 	$(CC) $(CFLAGS) angular.c

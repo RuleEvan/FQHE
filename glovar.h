@@ -15,6 +15,7 @@
 #include <gsl/gsl_complex.h>
 #include <gsl/gsl_complex_math.h>
 #include <gsl/gsl_sf_coupling.h>
+#include <gsl/gsl_sf_legendre.h>
 
 // Isotope setup
 #define M_S 6 // Number of magnetic flux quanta
