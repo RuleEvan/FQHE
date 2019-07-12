@@ -1,5 +1,23 @@
 #include "hilbert.h"
 
+wfnData* coherent_shift(wfnData* wd, double theta, double phi, int iv) {
+  // Acts the dot product of the raising shift operator
+  // with the lowering shift operator on the given wavefunction
+  int n = wd->n_spin_up;
+  double m_max = n/2.0;
+  double alpha = cos(theta/2.0);
+  double beta = sin(theta/2.0);
+  wfnData* wd_f = shift_op(wd, m_max, iv);
+  wfn_mult(wd_f, pow(beta, n));
+  for (int k = 0; k < n; k++) {
+    double m = k - m_max;
+    wfn_sum(wd_f, shift_op(wd, m, iv), pow(alpha, n/2 - m)*pow(beta, n/2 + m)*sqrt(gsl_sf_fact(n/2 + m)*gsl_sf_fact(n/2 - m)/gsl_sf_fact(n)));
+  }
+
+  return wd_f;
+}
+
+
 wfnData* u_dot_d(wfnData* wd) {
   // Acts the dot product of the raising shift operator
   // with the lowering shift operator on the given wavefunction
@@ -353,51 +371,6 @@ void normalize_wfn(wfnData* wd) {
   return;
 }
 
-double wigner_square(double b, double m, double theta, double** m_cache) {
-  int j_max = 2*b;
-  double w = 0.0;
-  int im = m + b;
-  if ((*m_cache)[im] == -100.014) {
-    for (int j = 0; j <= j_max; j++) {
-      w += sqrt(2*j+1)*gsl_sf_fact(2*b)/sqrt(gsl_sf_fact(2*b-j)*gsl_sf_fact(2*b+j+1))*clebsch_gordan(b,b,j,m,-m,0)*gsl_sf_legendre_Pl(j,cos(theta));
-    }
-    (*m_cache)[im] = w;
-  } else {
-    w = (*m_cache)[im];
-  }
-
-  return w;
-}
-
-double anti_wigner(int n, double b, float* m_vals, double theta, double** m_cache) {
-  double w = 0.0;
-  for (int i = 0; i < n; i++) {
-    w += pow(-1.0, b-m_vals[i])*wigner_square(b, m_vals[i], theta, m_cache);
-  }
-
-  return w;
-}
-
-double charge_density(wfnData* wd, double theta) {
-  double rho = 0.0;
-  double b = wd->b_mag;
-  int n = wd->n_spin_up;
-  double fact = (2*b + 1)/(4*M_PI)/n;
-  double* m_cache = (double*) malloc(sizeof(double)*(2*b + 1));
-  for (int i = 0; i < 2*b + 1; i++) {
-    m_cache[i] = -100.014;
-  }
-  for (unsigned int i_state = 0; i_state < wd->n_states; i_state++) {
-    if (fabs(wd->bc[i_state]) < pow(10, -6)) {continue;}
-    rho += pow(wd->bc[i_state], 2)*anti_wigner(n, b, wd->basis[i_state]->m_val, theta, &m_cache);
-
-  }
-  rho *= fact;
-  rho = n/(4.0*M_PI) - n*rho;
-
-  return rho;
-}
-
 void print_wfn(wfnData* wd) {
   char indices[1000];
   char form[100];
@@ -683,6 +656,16 @@ void generate_interaction_file(double q, int ll, int iv) {
         if (n != 0) {
           v *= (2*n + 1)/(n*(n+1));
         }
+      } else if (iv == 2) {
+        if ((n == 2)) {
+          v *= -0.06373;
+        } else if ((n == 3) || (n==4)) {
+          v *= 0.193361;
+        } else if (n == 5) {
+          v *= 0.06373;
+        } else {
+          v *= 0.0197865;
+        }
       }
       h += v;
     }
@@ -707,12 +690,42 @@ void generate_multilevel_interaction_file(double m, int iv) {
           for (int j = 0; j <= (int) 2*(m+1); j++) {
             if (j > j1 + j2 || j > j3 + j4 || j < fabs(j1 - j2) || j < fabs(j3 - j4)) {continue;}
             double h = 0.0;
-            for (int l = 0; l <= (int) 2*(m+1); l++) {
+            int kmax = MIN(j3 + j4, j1 + j2);
+            for (int l = 0; l <= kmax; l++) {
               double v = pow(-1.0, 2*m + j + 2*j3 + j4 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j3, -m, 0, m)*three_j(j2, l, j4, -m, 0, m)*six_j(j, j2, j1, l, j3, j4);
-              v += pow(-1.0, 1.0 + j3 + j4 - j + 2*m + j + 2*j4 + j3 + j2)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j4, -m, 0, m)*three_j(j2, l, j3, -m, 0, m)*six_j(j, j2, j1, l, j4, j3);
+              v += pow(-1.0, 2*m + j + 2*j4 + j3 + j2 + 1.0 + j3 + j4 - j)*sqrt((2*j1+1)*(2*j2+1)*(2*j3+1)*(2*j4+1))*three_j(j1, l, j4, -m, 0, m)*three_j(j2, l, j3, -m, 0, m)*six_j(j, j2, j1, l, j4, j3);
               if (iv == 1) {
                 if (l != 0) {
                   v *= (2*l + 1)/(l*(l+1));
+                }
+              }
+              if (iv == 2) {
+                if ((j1 == j2)) {
+                  if ((l == 2)) {
+                    v *= -0.0637;
+                  } else if ((l == 3) || (l==4)) {
+                    v *= 0.1934;
+                  } else if (l == 5) {
+                    v *= 0.0637;
+                  } else {
+                    v *= 0.01934;
+                  }
+                } else if ((j1 != j2)) {
+                  if ((l == 0) || (l == 1)) {
+                    v *= 0.0584;
+                  } else if (l == 2 || (l == 3) || (l == 4) || (l == 5)) {
+                    v *= 0.148;
+                  } else {
+                    v *= 2.176;
+                  }
+                } else if ((j1 == m) && (j2 == m)) {
+                 if ((l == 4) || (l == 5)) {
+                   v *= -0.769;
+                  } else if ((l == 3)) {
+                    v *= -0.0738;
+                  } else {
+                    v *= 0.0384;
+                  }
                 }
               }
               h += v;

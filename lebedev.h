@@ -5,6 +5,9 @@
 
 gsl_complex lebedev (gsl_complex (*f) (int, int, int, int, double, double), int l1, int l2, int m1, int m2);
 
+double lebedev_r(double (*f) (wfnData*, double), wfnData* wd);
+
+
 gsl_complex y1sph(double theta, double phi);
 
 gsl_complex wigner_d_max(int l, int m, double theta, double phi);

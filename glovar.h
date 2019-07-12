@@ -25,7 +25,7 @@
 #define HASH_SIZE 1001467
 
 #define LEBEDEV_ORDER 5810
-#define LEB_FILE "lebedev_131.txt"
+#define LEB_FILE "lebedev/lebedev_131.txt"
 
 #define MIN(a,b) ((a) < (b) ? (a):(b))
 #define MAX(a,b) ((a) > (b) ? (a):(b))

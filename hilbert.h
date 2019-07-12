@@ -23,8 +23,6 @@ wfnData* d_tensor_d(wfnData* wd, double j_tot, double m_tot);
 wfnData* uu_tensor_dd(wfnData* wd, double j_u, double j_d, double j_tot, double m_tot);
 wfnData* ud_tensor_ud(wfnData* wd, double j_u, double j_d, double j_tot, double m_tot);
 wfnData* order_wfn(wfnData* wf);
+wfnData* coherent_shift(wfnData* wd, double theta, double phi, int iv);
 void generate_multilevel_interaction_file(double m, int iv);
-double wigner_square(double b, double m, double theta, double** m_cache);
-double anti_wigner(int n, double b, float* m_vals, double theta, double** m_cache);
-double charge_density(wfnData* wd, double theta);
 #endif

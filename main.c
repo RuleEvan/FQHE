@@ -1,15 +1,30 @@
-#include "composite.h"
+#include "charge.h"
 
 int main(int argc, char *argv[]) {
-//  wfnData* wd_shift =   two_hole_wick_tensor(2.5, 0.0, 6, 2.5, 2.5, 3, 0);
-//  wfnData* wd_shift =   composite(0.5, 1.0, 6);
+//  wfnData* wd_shift =   tensor_composite(1.5, 0.0, 4, 1.5, 4.5, 4, 0);
+//  wfnData* wd_shift =   ph2_tensor_composite(1.5, 0.0, 4, 1.5, 1.5, 2.5, 2.5, 0, 4, 4, 0);
 
-  wfnData *wd; //  wfnData *wd_shift2 = u_tensor_d(wd, 4,0);
-//  wfnData *wd_shift2 = u_tensor_d(wd, 2, 0);
+//  wfnData* wd_shift =   composite(2.5, 0.0, 6);
+//    wfnData* wd = read_binary_wfn_data("fqhe_b4.5_n6.wfn", "fqhe_b4.5_n6.bas", 0);
+//    wfnData *wd_shift = shift_op(wd, 0.0, 0);
+//  wfnData *wd_shift = coherent_shift(wd, M_PI/2.0, 0.0, 1);
+//  wd_shift = coherent_shift(wd_shift, 0, 0.0, 0);
+//generate_lookup_table(7, 8.5);
+  wfnData* wd_shift =  composite_fast(2, 0.0, 5);
+  normalize_wfn(wd_shift);
+//    wfnData* wd2 = read_binary_wfn_data("fqhe_b11.5_n9_m1.5.wfn", "fqhe_b11.5_n9_m1.5.bas", 0);
+//    print_charge_density(wd, 100);
+//    wd = order_wfn(wd);
+//    print_wfn(wd_shift);
+//   printf("dot: %g\n", pow(wfn_dot(wd, wd2), 2));
+
+ // wfnData *wd; //  wfnData *wd_shift2 = u_tensor_d(wd, 4,0);
+//printf("%g\n", composite_coulomb(wd, wd, 100));
+//  print_coupled_charge_density("fqhe_b11.5_n9", 4.5, 4.5, 2, 2, 100, 10);
+//  wfnData *wd_shift = ud_tensor_ud(wd, 3, 3, 6, 0);
 //  wfnData *wd_shift3 = ud_tensor_ud(wd, 3, 4, 6, 0);
-  //wfnData *wd_shift = shift_op(wd, 0.5, 0);
 //  normalize_wfn(wd);
-//  normalize_wfn(wd_shift2);
+//  normalize_wfn(wd_shift);
 //  normalize_wfn(wd_shift2);
 //  normalize_wfn(wd_shift3);
 //  wfn_mult(wd_shift1, -3.78448);
@@ -22,7 +37,6 @@ int main(int argc, char *argv[]) {
 
   for (int i = 0; i < 100; i++) {
     double theta = i*M_PI/n_steps;
-    wd = read_binary_wfn_data("fqhe_b12.5_n10_m8.wfn", "fqhe_b12.5_n10_m8.bas", 0);
     double rho_couple = 2*M_PI*charge_density(wd, theta);
 ;
     total += rho_couple*sin(theta)*M_PI/n_steps;
@@ -76,16 +90,18 @@ int main(int argc, char *argv[]) {
 */
 //  print_wfn(wd);
 //  printf("\n");
-//  wfnData *wde; 
-//  for (int i = 0; i < 4; i++) {
-//    wde = read_binary_wfn_data("fqhe_b3.5_n6.wfn", "fqhe_b3.5_n6.bas", i);
-//    double j = wde->j_nuc[i];
-//   wde = order_wfn(wde);
-//   printf("dot: %d %g %g\n", i, j, pow(wfn_dot(wd_shift, wde), 2));
-//  }
-//  generate_multilevel_interaction_file(7, 0);
+  wfnData *wde; 
+  for (int i = 0; i < 10; i++) {
+    wde = read_binary_wfn_data("fqhe_b6_n5.wfn", "fqhe_b6_n5.bas", i);
+    double j = wde->j_nuc[i];
+   wde = order_wfn(wde);
+   printf("dot: %d %g %g\n",i, j, pow(wfn_dot(wd_shift, wde), 2));
+  }
+ //  printf("\n");
+//  print_wfn(wde);
+//  generate_multilevel_interaction_file(3.5, 2);
 //  printf("\n");
-  generate_interaction_file(17.5, 0, 0);
+//  generate_interaction_file(3.5, 1, 0);
 
   return 0;
 }

@@ -64,6 +64,30 @@ gsl_complex lebedev( gsl_complex (*f) (int, int, int, int, double, double) , int
   return result;
 }
 
+double lebedev_r( double (*f) (wfnData*, double), wfnData* wd) {
+
+  double result = 0.0;
+  FILE *in_file;
+  double theta, phi, coeff;
+  in_file = fopen(LEB_FILE, "r");
+  double f_prev;
+  double theta_prev = -1;
+  while (fscanf(in_file, "%lf %lf %lf\n", &phi, &theta, &coeff) == 3) {
+    theta = theta/180.0*M_PI;
+    phi = phi/180.0*M_PI;
+    if (theta == theta_prev) {
+      result += f_prev*coeff;
+    } else{
+      f_prev = f(wd, theta);
+      result += f_prev*coeff;
+    }
+    theta_prev = theta;
+  }
+  result *= 4.0*M_PI;
+
+  return result;
+}
+
 
 gsl_complex double_lebedev(gsl_complex (*f) (int, int, int, int, int, int, int, int, double, double, double, double), int l1, int l2, int l3, int l4, int m1, int m2, int m3, int m4 ) {
   // Integrates f(theta_1, phi_1, theta_2, phi_2) over the unit sphere
